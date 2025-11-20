@@ -1,0 +1,11 @@
+[package]
+name = "valkyrie"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "net", "io-util", "time"] }
+bytes = "1"
+socket2 = { version = "0.6.1", features = ["all"] }
+crossbeam-channel = "0.5"
+libc = "0.2"

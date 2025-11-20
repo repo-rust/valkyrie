@@ -1,0 +1,12 @@
+# Ignore lock file b/c we have self-executable not library.
+Cargo.lock
+
+# Output folder
+/target
+
+# IntelliJ Rust Rover files
+.idea/
+*.iml
+
+# Ignore flamegraph profiled data
+flamegraph.svg
