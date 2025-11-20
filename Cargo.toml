@@ -9,3 +9,5 @@ bytes = "1"
 socket2 = { version = "0.6.1", features = ["all"] }
 crossbeam-channel = "0.5"
 libc = "0.2"
+num_cpus = "1.16"
+affinity = "0.1.2"
