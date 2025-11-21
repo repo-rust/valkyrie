@@ -1,3 +1,3 @@
-pub mod connection;
+pub mod connection_handler;
 pub mod dispatcher;
 pub mod reuse;

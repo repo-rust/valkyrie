@@ -5,7 +5,7 @@ use std::thread;
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::net::TcpListener;
 
-use crate::network::connection::handle_connection;
+use crate::network::connection_handler::handle_connection;
 
 pub fn run_reuseport(addr: SocketAddr, shards: usize) -> io::Result<()> {
     println!("[main] Starting {shards} shards on {addr} with SO_REUSEPORT...");
@@ -43,18 +43,14 @@ fn build_reuseport_listener(shard_id: usize, addr: SocketAddr) -> io::Result<Std
     socket.set_reuse_address(true)?;
 
     // Enable SO_REUSEPORT on platforms that support it
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "android",
-        target_os = "macos",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(target_os = "linux", target_os = "macos",))]
     {
         println!("[shard-{shard_id}] SO_REUSEPORT enabled");
         socket.set_reuse_port(true)?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        println!("[shard-{shard_id}] SO_REUSEPORT disabled");
     }
 
     socket.bind(&addr.into())?;

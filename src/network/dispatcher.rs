@@ -6,7 +6,7 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use tokio::net::TcpStream;
 
-use crate::network::connection::handle_connection;
+use crate::network::connection_handler::handle_connection;
 
 pub fn run_dispatcher(addr: SocketAddr, shards: usize) -> io::Result<()> {
     println!("[main] Dispatcher listening on {addr}, shards: {shards}");
