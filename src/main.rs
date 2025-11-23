@@ -5,6 +5,7 @@ mod startup_arguments;
 use crate::startup_arguments::{Mode, StartupArguments};
 
 mod network;
+mod protocol;
 use crate::network::dispatcher::run_dispatcher;
 use crate::network::reuse::run_reuseport;
 

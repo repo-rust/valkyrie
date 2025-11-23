@@ -1,34 +1,49 @@
 use std::io;
 
 use bytes::BytesMut;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
-// Per-connection handler: read into a reusable BytesMut buffer and echo back.
-// Uses clear() to retain capacity and avoid reallocations on subsequent reads.
+use crate::protocol::redis_serialization_protocol::{RedisType, parse_type};
+
 pub async fn handle_connection(mut stream: TcpStream, shard_id: usize) -> io::Result<()> {
-    let mut buf = BytesMut::with_capacity(64 * 1024);
+    //
+    // 10KB should be enough to parse request bytes into REdisType
+    //
+    let mut buf = BytesMut::with_capacity(10 * 1024);
 
     loop {
-        // Ensure some spare capacity; read_buf will grow if needed.
-        buf.reserve(4096);
-
-        let received_bytes_cnt = stream.read_buf(&mut buf).await?;
+        let mut received_bytes_cnt = stream.read_buf(&mut buf).await?;
 
         if received_bytes_cnt == 0 {
             break;
         }
 
-        // Convert received bytes to UTF-8 (lossy) string and print it.
-        println!(
-            "[shard-{}]: rcv: \"{}\", bytes: {}",
-            shard_id,
-            String::from_utf8_lossy(&buf),
-            received_bytes_cnt
-        );
+        let mut maybe_type = parse_type(&buf);
 
-        // Echo back the bytes we have; write_all guarantees full write.
-        stream.write_all(&buf).await?;
+        while maybe_type.is_none() {
+            received_bytes_cnt += stream.read_buf(&mut buf).await?;
+            maybe_type = parse_type(&buf);
+        }
+
+        let received_redis_type = maybe_type.unwrap();
+
+        match received_redis_type {
+            RedisType::SimpleString(value) => {
+                println!("[shard-{shard_id}]: rcv: \"{value}\", bytes: {received_bytes_cnt}");
+            }
+            RedisType::BulkString(value) => {
+                println!("[shard-{shard_id}]: rcv: \"{value}\", bytes: {received_bytes_cnt}");
+            }
+            _ => {
+                println!(
+                    "[shard-{}]: rcv: \"{}\", bytes: {}",
+                    shard_id,
+                    "Undefined RedisType".to_owned(),
+                    received_bytes_cnt
+                );
+            }
+        }
         buf.clear();
     }
 
