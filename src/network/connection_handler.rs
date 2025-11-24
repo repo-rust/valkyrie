@@ -4,29 +4,33 @@ use bytes::BytesMut;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
-use crate::protocol::redis_serialization_protocol::{RedisType, parse_type};
+use crate::protocol::redis_serialization_protocol::{RedisType, try_parse_type};
 
 pub async fn handle_connection(mut stream: TcpStream, shard_id: usize) -> io::Result<()> {
     //
-    // 10KB should be enough to parse request bytes into REdisType
+    // 10KB should be enough to parse request bytes into RedisType
     //
     let mut buf = BytesMut::with_capacity(10 * 1024);
 
-    loop {
-        let mut received_bytes_cnt = stream.read_buf(&mut buf).await?;
+    'outer: loop {
+        let mut read_it_idx = 0;
+        let mut received_bytes_cnt = 0;
 
-        if received_bytes_cnt == 0 {
-            break;
-        }
+        let mut type_opt = None;
 
-        let mut maybe_type = parse_type(&buf);
-
-        while maybe_type.is_none() {
+        while type_opt.is_none() {
             received_bytes_cnt += stream.read_buf(&mut buf).await?;
-            maybe_type = parse_type(&buf);
+
+            if read_it_idx == 0 && received_bytes_cnt == 0 {
+                // connection closed by client
+                break 'outer;
+            }
+
+            type_opt = try_parse_type(&buf);
+            read_it_idx += 1;
         }
 
-        let received_redis_type = maybe_type.unwrap();
+        let received_redis_type = type_opt.unwrap();
 
         match received_redis_type {
             RedisType::SimpleString(value) => {

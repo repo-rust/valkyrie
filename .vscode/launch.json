@@ -22,7 +22,7 @@
             "args": [],
             "cwd": "${workspaceFolder}",
             "env": {
-                "SHARDS": "2"
+                "SHARDS": "4"
             }
         },
         {

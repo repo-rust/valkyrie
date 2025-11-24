@@ -7,7 +7,7 @@ pub enum RedisType {
     Array(Vec<RedisType>),
 }
 
-pub fn parse_type(buf: &BytesMut) -> Option<RedisType> {
+pub fn try_parse_type(buf: &BytesMut) -> Option<RedisType> {
     if buf.is_empty() {
         return None;
     }

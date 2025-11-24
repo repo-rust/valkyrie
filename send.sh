@@ -11,5 +11,3 @@ exec 3>&-
 exec 3<>/dev/tcp/127.0.0.1/8080
     printf "\$5\r\nHello\r\n">&3
 exec 3>&-
-
-done

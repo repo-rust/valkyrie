@@ -65,7 +65,7 @@ fn spawn_reuseport_shard(shard_id: usize, std_listener: StdTcpListener) -> threa
     thread::Builder::new()
         .name(format!("shard-reuseport-{shard_id}"))
         .spawn(move || {
-            // Optional: pin to a core for stronger isolation (Linux only). Uncomment if desired.
+            // Pin to a CRU core for stronger isolation and betetr performance(Linux only).
             #[cfg(target_os = "linux")]
             {
                 let core = shard_id % num_cpus::get();
