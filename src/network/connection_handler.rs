@@ -30,14 +30,23 @@ pub async fn handle_connection(mut stream: TcpStream, shard_id: usize) -> io::Re
             read_it_idx += 1;
         }
 
-        let received_redis_type = type_opt.unwrap();
+        let received_redis_type = type_opt.unwrap().0;
 
         match received_redis_type {
             RedisType::SimpleString(value) => {
-                println!("[shard-{shard_id}]: rcv: \"{value}\", bytes: {received_bytes_cnt}");
+                println!(
+                    "[shard-{shard_id}]: rcv: SimpleString({value}), bytes: {received_bytes_cnt}"
+                );
             }
             RedisType::BulkString(value) => {
-                println!("[shard-{shard_id}]: rcv: \"{value}\", bytes: {received_bytes_cnt}");
+                println!(
+                    "[shard-{shard_id}]: rcv: BulkString({value}), bytes: {received_bytes_cnt}"
+                );
+            }
+            RedisType::Array(elements) => {
+                for elem in &elements {
+                    println!("[shard-{shard_id}]: rcv: \"{elem:?}\", bytes: {received_bytes_cnt}");
+                }
             }
             _ => {
                 println!(
