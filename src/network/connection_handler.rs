@@ -8,7 +8,7 @@ use crate::protocol::redis_serialization_protocol::{RedisType, try_parse_type};
 
 pub async fn handle_connection(mut stream: TcpStream, shard_id: usize) -> io::Result<()> {
     //
-    // 10KB should be enough to parse request bytes into RedisType
+    // 10 KB should be enough to parse request bytes into RedisType
     //
     let mut buf = BytesMut::with_capacity(10 * 1024);
 
@@ -47,6 +47,11 @@ pub async fn handle_connection(mut stream: TcpStream, shard_id: usize) -> io::Re
                 for elem in &elements {
                     println!("[shard-{shard_id}]: rcv: \"{elem:?}\", bytes: {received_bytes_cnt}");
                 }
+            }
+            RedisType::Integer(value) => {
+                println!(
+                    "[shard-{shard_id}]: rcv: \"Integer({value})\", bytes: {received_bytes_cnt}"
+                );
             }
             _ => {
                 println!(
