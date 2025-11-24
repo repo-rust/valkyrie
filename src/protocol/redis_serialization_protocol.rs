@@ -7,6 +7,7 @@ pub enum RedisType {
     NullBulkString,
     Array(Vec<RedisType>),
     NullArray,
+    Integer(i32),
     InvalidType(String),
 }
 
@@ -110,6 +111,21 @@ fn try_parse_type_forward(buf: &mut ForwardBuf) -> Option<RedisType> {
                 ))
             }
         }
+        // Integer :[<+|->]<value>\r\n
+        // https://redis.io/docs/latest/develop/reference/protocol-spec/#integers
+        b':' => {
+            if let Some(integer_as_str) = buf.consume_part() {
+                if let Ok(integer_value) = integer_as_str.parse::<i32>() {
+                    Some(RedisType::Integer(integer_value))
+                } else {
+                    Some(RedisType::InvalidType(
+                        format!("Invalid integer {integer_as_str}").to_owned(),
+                    ))
+                }
+            } else {
+                Some(RedisType::InvalidType("Can't read integer".to_owned()))
+            }
+        }
         _ => {
             todo!("Unimplemented type")
         }
@@ -121,7 +137,7 @@ struct ForwardBuf<'a> {
     offset: usize,
 }
 
-impl<'a> ForwardBuf<'a> {
+impl ForwardBuf<'_> {
     fn at_end(&self) -> bool {
         self.offset >= self.buf.len()
     }
@@ -162,12 +178,29 @@ impl<'a> ForwardBuf<'a> {
 mod tests {
     use super::*;
 
+    //
+    // Test Simple String parsing
+    //
     #[test]
     fn parse_simple_string() {
         assert_for_content("+OK\r\n", RedisType::SimpleString("OK".to_owned()));
         assert_for_content("+Ping\r\n", RedisType::SimpleString("Ping".to_owned()));
     }
 
+    #[test]
+    fn parse_simple_string_incorrect() {
+        assert_none_for_content("+OK");
+
+        assert_none_for_content("+OK\r");
+
+        assert_none_for_content("+OK\n");
+
+        assert_none_for_content("+OK\n\r");
+    }
+
+    //
+    // Test Bulk String parsing
+    //
     #[test]
     fn parse_bulk_string() {
         assert_for_content("$4\r\nbulk\r\n", RedisType::BulkString("bulk".to_owned()));
@@ -200,17 +233,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn parse_simple_string_incorrect() {
-        assert_none_for_content("+OK");
-
-        assert_none_for_content("+OK\r");
-
-        assert_none_for_content("+OK\n");
-
-        assert_none_for_content("+OK\n\r");
-    }
-
+    //
+    // Test Array parsing
+    //
     #[test]
     fn parse_array() {
         // Empty array
@@ -329,6 +354,90 @@ mod tests {
         assert_for_content(
             "*abc\r\n",
             RedisType::InvalidType("Array length not a number abc".to_owned()),
+        );
+    }
+
+    //
+    // Integer parsing
+    //
+    #[test]
+    fn parse_integer() {
+        assert_for_content(":0\r\n", RedisType::Integer(0));
+        assert_for_content(":+0\r\n", RedisType::Integer(0));
+        assert_for_content(":42\r\n", RedisType::Integer(42));
+        assert_for_content(":+42\r\n", RedisType::Integer(42));
+        assert_for_content(":-42\r\n", RedisType::Integer(-42));
+        assert_for_content(":2147483647\r\n", RedisType::Integer(2147483647));
+        assert_for_content(":-2147483647\r\n", RedisType::Integer(-2147483647));
+        assert_for_content(":-2147483648\r\n", RedisType::Integer(-2147483648));
+    }
+
+    #[test]
+    fn parse_integer_incorrect() {
+        // Empty integer after marker
+        assert_for_content(
+            ":\r\n",
+            RedisType::InvalidType("Invalid integer ".to_owned()),
+        );
+
+        // Sign only
+        assert_for_content(
+            ":+\r\n",
+            RedisType::InvalidType("Invalid integer +".to_owned()),
+        );
+        assert_for_content(
+            ":-\r\n",
+            RedisType::InvalidType("Invalid integer -".to_owned()),
+        );
+
+        // Non-digit characters in value
+        assert_for_content(
+            ":12a\r\n",
+            RedisType::InvalidType("Invalid integer 12a".to_owned()),
+        );
+        assert_for_content(
+            ":a12\r\n",
+            RedisType::InvalidType("Invalid integer a12".to_owned()),
+        );
+        assert_for_content(
+            ":+-12\r\n",
+            RedisType::InvalidType("Invalid integer +-12".to_owned()),
+        );
+        assert_for_content(
+            ":-+12\r\n",
+            RedisType::InvalidType("Invalid integer -+12".to_owned()),
+        );
+    }
+
+    #[test]
+    fn parse_integer_incomplete_or_overflow() {
+        // Incomplete (missing CRLF) -> parser returns InvalidType("Can't read integer")
+        assert_for_content(
+            ":0",
+            RedisType::InvalidType("Can't read integer".to_owned()),
+        );
+        assert_for_content(
+            ":123\r",
+            RedisType::InvalidType("Can't read integer".to_owned()),
+        );
+        assert_for_content(
+            ":123\n",
+            RedisType::InvalidType("Can't read integer".to_owned()),
+        );
+        assert_for_content(
+            ":123\n\r",
+            RedisType::InvalidType("Can't read integer".to_owned()),
+        );
+
+        // // Overflow/underflow: values outside i32 range
+        assert_for_content(
+            ":2147483648\r\n",
+            RedisType::InvalidType("Invalid integer 2147483648".to_owned()),
+        );
+
+        assert_for_content(
+            ":-2147483649\r\n",
+            RedisType::InvalidType("Invalid integer -2147483649".to_owned()),
         );
     }
 
