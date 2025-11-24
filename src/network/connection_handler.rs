@@ -30,7 +30,7 @@ pub async fn handle_connection(mut stream: TcpStream, shard_id: usize) -> io::Re
             read_it_idx += 1;
         }
 
-        let received_redis_type = type_opt.unwrap().0;
+        let received_redis_type = type_opt.unwrap();
 
         match received_redis_type {
             RedisType::SimpleString(value) => {
