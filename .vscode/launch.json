@@ -19,10 +19,14 @@
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": [
+                "--mode=reuseport",
+                "--address=127.0.0.1:8080",
+                "--shards=3"
+            ],
             "cwd": "${workspaceFolder}",
             "env": {
-                "SHARDS": "4"
+                "SHARDS": "3"
             }
         },
         {

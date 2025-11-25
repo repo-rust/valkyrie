@@ -64,13 +64,7 @@ fn main() -> io::Result<()> {
     println!("[main] Program arguments: {program_arguments:?}");
 
     match program_arguments.mode {
-        Mode::ReusePort => run_reuseport(
-            program_arguments.socket_address,
-            program_arguments.shards_count,
-        ),
-        Mode::Dispatcher => run_dispatcher(
-            program_arguments.socket_address,
-            program_arguments.shards_count,
-        ),
+        Mode::ReusePort => run_reuseport(program_arguments.address, program_arguments.shards),
+        Mode::Dispatcher => run_dispatcher(program_arguments.address, program_arguments.shards),
     }
 }

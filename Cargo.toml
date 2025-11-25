@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1", features = ["rt", "net", "io-util", "time", "sync"] }
+clap = { version = "4", features = ["derive"] }
 bytes = "1"
 socket2 = { version = "0.6.1", features = ["all"] }
 crossbeam-channel = "0.5"

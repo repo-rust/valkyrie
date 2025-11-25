@@ -8,7 +8,7 @@ use tokio::net::TcpListener;
 use crate::network::connection_handler::handle_connection;
 
 pub fn run_reuseport(addr: SocketAddr, shards: usize) -> io::Result<()> {
-    println!("[main] Starting {shards} shards on {addr} with SO_REUSEPORT...");
+    println!("[main] Starting {shards} shards on {addr} with potential SO_REUSEPORT");
 
     // Build one listener per shard. Each gets its own accept loop.
     let mut listeners = Vec::with_capacity(shards);
@@ -81,6 +81,7 @@ fn spawn_reuseport_shard(shard_id: usize, std_listener: StdTcpListener) -> threa
 
             rt.block_on(async move {
                 let listener = TcpListener::from_std(std_listener).expect("tokio listener");
+
                 if let Err(e) = shard_accept_loop(listener, shard_id).await {
                     eprintln!("[shard {shard_id}] accept loop error: {e}");
                 }
@@ -92,6 +93,7 @@ fn spawn_reuseport_shard(shard_id: usize, std_listener: StdTcpListener) -> threa
 async fn shard_accept_loop(listener: TcpListener, shard_id: usize) -> io::Result<()> {
     loop {
         let (stream, peer) = listener.accept().await?;
+
         // Each shard owns its accepted connections; no cross-shard handoff.
         tokio::spawn(async move {
             if let Err(e) = handle_connection(stream, shard_id).await {

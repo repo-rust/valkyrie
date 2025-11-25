@@ -15,9 +15,9 @@ pub fn run_dispatcher(addr: SocketAddr, shards: usize) -> io::Result<()> {
     let mut senders: Vec<Sender<StdTcpStream>> = Vec::with_capacity(shards);
     let mut handles = Vec::with_capacity(shards);
     for shard_id in 0..shards {
-        let (tx, rx) = unbounded::<StdTcpStream>();
-        senders.push(tx);
-        handles.push(spawn_dispatch_shard(shard_id, rx));
+        let (stream_sender, stream_receiver) = unbounded::<StdTcpStream>();
+        senders.push(stream_sender);
+        handles.push(spawn_dispatch_shard(shard_id, stream_receiver));
     }
 
     // Single acceptor in std; hand off sockets to shards by a simple hash.

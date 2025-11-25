@@ -1,56 +1,48 @@
+use clap::{Parser, ValueEnum};
 use std::net::SocketAddr;
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Parser)]
+#[command(
+    name = "valkyrie",
+    about = "High-performance TCP demo with dispatcher/reuseport modes"
+)]
 pub struct StartupArguments {
+    #[arg(long = "mode", value_enum, default_value_t = Mode::ReusePort, help = "Runtime mode: reuseport or dispatcher")]
     pub mode: Mode,
-    pub socket_address: SocketAddr,
-    pub shards_count: usize,
+
+    #[arg(
+        long = "address",
+        default_value = "0.0.0.0:8080",
+        help = "Socket address to bind, e.g. 0.0.0.0:8080"
+    )]
+    pub address: SocketAddr,
+
+    #[arg(long = "shards", default_value_t = StartupArguments::default_shards(), help = "Number of shards; can also be set via SHARDS env var")]
+    pub shards: usize,
 }
 
 impl StartupArguments {
-    ///
-    /// Command lines arguments:
-    /// 0 - program name
-    /// 1 - runtime mode, can be 'dispatcher' or 'reuseport'. Default to 'reuseport'
-    /// 2 - host and port to bind. Default to '0.0.0.0:8080'  
-    ///
-    /// Environment variables:
-    /// 'SHARDS' - number of shards to be created. Default to number of CPUs or 4 if CPUs information can't be obtained.
-    ///
-    pub fn parse_args() -> Self {
-        let mut args = std::env::args().skip(1);
-
-        // parse Mode
-        let mode = match args.next().as_deref() {
-            Some("dispatcher") => Mode::Dispatcher,
-            _ => Mode::ReusePort,
-        };
-
-        // parse SocketAddr
-        let socket_address: SocketAddr = args
-            .next()
-            .as_deref()
-            .unwrap_or("0.0.0.0:8080")
-            .parse()
-            .expect("invalid bind address");
-
-        // parse shards count
-        let shards_env = std::env::var("SHARDS")
+    /// Returns the default shards count, preferring SHARDS env var, then CPU count, then 4.
+    fn default_shards() -> usize {
+        std::env::var("SHARDS")
             .ok()
-            .and_then(|s| s.parse::<usize>().ok());
-        let shards_count = shards_env
+            .and_then(|s| s.parse::<usize>().ok())
             .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
-            .unwrap_or(4);
+            .unwrap_or(4)
+    }
 
-        Self {
-            mode,
-            socket_address,
-            shards_count,
-        }
+    /// Parse command line arguments using clap.
+    ///
+    /// Usage:
+    ///     --mode=dispatcher|reuseport --address=0.0.0.0:8080 --shards=4
+    pub fn parse_args() -> Self {
+        Self::parse()
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum Mode {
+    #[value(name = "reuseport")]
     ReusePort,
+    #[value(name = "dispatcher")]
     Dispatcher,
 }
