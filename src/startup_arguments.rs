@@ -1,10 +1,7 @@
 use clap::{Parser, ValueEnum};
 use std::net::SocketAddr;
 #[derive(Debug, Clone, Copy, Parser)]
-#[command(
-    name = "valkyrie",
-    about = "High-performance TCP demo with dispatcher/reuseport modes"
-)]
+#[command(name = "valkyrie", about = "High-performance Key-Value storage")]
 pub struct StartupArguments {
     #[arg(long = "mode", value_enum, default_value_t = Mode::ReusePort, help = "Runtime mode: reuseport or dispatcher")]
     pub mode: Mode,
@@ -16,26 +13,39 @@ pub struct StartupArguments {
     )]
     pub address: SocketAddr,
 
-    #[arg(long = "shards", default_value_t = StartupArguments::default_shards(), help = "Number of shards; can also be set via SHARDS env var")]
+    #[arg(
+        long = "tcp-handlers",
+        default_value_t = usize::MAX,
+        help = "Number of TCP handler threads"
+    )]
+    pub tcp_handlers: usize,
+
+    #[arg(
+        long = "shards",
+        default_value_t = usize::MAX,
+        help = "Number of storage shards"
+    )]
     pub shards: usize,
 }
 
 impl StartupArguments {
-    /// Returns the default shards count, preferring SHARDS env var, then CPU count, then 4.
-    fn default_shards() -> usize {
-        std::env::var("SHARDS")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
-            .unwrap_or(4)
-    }
-
     /// Parse command line arguments using clap.
     ///
     /// Usage:
-    ///     --mode=dispatcher|reuseport --address=0.0.0.0:8080 --shards=4
+    ///     --mode=dispatcher|reuseport --address=0.0.0.0:8080 --tcp-handlers=4 --shards=4
     pub fn parse_args() -> Self {
-        Self::parse()
+        let mut args = Self::parse();
+
+        // Limit shards to the minimum of the user-provided value and half of the available CPUs (at least 1)
+        let available = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        let half = std::cmp::max(1, available / 2);
+
+        args.shards = std::cmp::min(args.shards, half);
+        args.tcp_handlers = std::cmp::min(args.tcp_handlers, half);
+
+        args
     }
 }
 
