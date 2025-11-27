@@ -23,18 +23,23 @@ pub fn start_dispatcher(arguments: &StartupArguments) -> io::Result<()> {
             Ok((stream, peer)) => {
                 // Required for integrating with Tokio via TcpListener::from_std,
                 // which expects a nonblocking socket so the runtime can drive it with readiness-based I/O.
-                stream
-                    .set_nonblocking(true)
-                    .expect("Can't move to non-blocking mode");
+                if let Err(error) = stream.set_nonblocking(true) {
+                    eprintln!(
+                        "Can't move TCP accepted stream socket to non-blocking mode: {error}"
+                    );
+                    continue;
+                }
 
-                // dispatch to tcp handlers
+                // Dispatch to TCP handlers based on peer port hash.
                 let tcp_handler_channel_idx = (peer.port() as usize) % tcp_handler_channels.len();
 
                 if let Err(e) = tcp_handler_channels[tcp_handler_channel_idx].send(stream) {
-                    eprintln!("Failed to dispatch to tcp-handler-{tcp_handler_channel_idx}: {e}");
+                    eprintln!(
+                        "Failed to dispatch to TCP handler with index '{tcp_handler_channel_idx}': {e}"
+                    );
                 }
             }
-            Err(e) => return Err(e),
+            Err(error) => return Err(error),
         }
     }
 }

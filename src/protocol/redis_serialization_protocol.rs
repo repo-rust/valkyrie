@@ -60,13 +60,13 @@ fn try_parse_type_forward(buf: &mut ForwardBuf) -> Option<RedisType> {
                 let mut elements = Vec::with_capacity(len as usize);
 
                 // Read all array elements recursively
-                for i in 0..len {
-                    if let Some(elem) = try_parse_type_forward(buf) {
-                        elements.push(elem);
-                    } else {
-                        return Some(RedisType::InvalidType(
-                            format!("Can't read {i}-th array element").to_owned(),
-                        ));
+                for _i in 0..len {
+                    match try_parse_type_forward(buf) {
+                        Some(elem) => elements.push(elem),
+                        None => {
+                            // Incomplete input: propagate None so the caller can read more bytes.
+                            return None;
+                        }
                     }
                 }
 
@@ -127,7 +127,7 @@ fn try_parse_type_forward(buf: &mut ForwardBuf) -> Option<RedisType> {
             }
         }
         _ => {
-            todo!("Unimplemented type")
+            todo!("Unsupported type marker byte: '{}'", marker_byte as char)
         }
     }
 }
@@ -277,6 +277,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_array_with_different_types() {
+        assert_for_content(
+            "*5\r\n$5\r\nhello\r\n$-1\r\n$5\r\nworld\r\n$8\r\nvalkyrie\r\n$11\r\nis the best\r\n",
+            RedisType::Array(vec![
+                RedisType::BulkString("hello".to_owned()),
+                RedisType::NullBulkString,
+                RedisType::BulkString("world".to_owned()),
+                RedisType::BulkString("valkyrie".to_owned()),
+                RedisType::BulkString("is the best".to_owned()),
+            ]),
+        );
+    }
+
+    #[test]
     fn parse_array_null() {
         assert_for_content("*-1\r\n", RedisType::NullArray);
     }
@@ -309,40 +323,19 @@ mod tests {
     #[test]
     fn parse_array_incorrect() {
         // missing one element
-        assert_for_content(
-            "*1\r\n",
-            RedisType::InvalidType("Can't read 0-th array element".to_owned()),
-        );
+        assert_none_for_content("*1\r\n");
 
         // Missing second element
-        assert_for_content(
-            "*2\r\n+OK\r\n",
-            RedisType::InvalidType("Can't read 1-th array element".to_owned()),
-        );
+        assert_none_for_content("*2\r\n+OK\r\n");
 
         // Incomplete element inside array
-        assert_for_content(
-            "*1\r\n$4\r\nbulk",
-            RedisType::InvalidType("Can't read 0-th array element".to_owned()),
-        ); // bulk string not fully terminated
-        assert_for_content(
-            "*1\r\n+OK",
-            RedisType::InvalidType("Can't read 0-th array element".to_owned()),
-        ); // simple string not fully terminated
+        assert_none_for_content("*1\r\n$4\r\nbulk"); // bulk string not fully terminated
+        assert_none_for_content("*1\r\n+OK"); // simple string not fully terminated
 
         // Partially terminated element delimiters
-        assert_for_content(
-            "*1\r\n+OK\r",
-            RedisType::InvalidType("Can't read 0-th array element".to_owned()),
-        );
-        assert_for_content(
-            "*1\r\n+OK\n",
-            RedisType::InvalidType("Can't read 0-th array element".to_owned()),
-        );
-        assert_for_content(
-            "*1\r\n+OK\n\r",
-            RedisType::InvalidType("Can't read 0-th array element".to_owned()),
-        );
+        assert_none_for_content("*1\r\n+OK\r");
+        assert_none_for_content("*1\r\n+OK\n");
+        assert_none_for_content("*1\r\n+OK\n\r");
 
         // Invalid negative length (except -1)
         assert_for_content(
