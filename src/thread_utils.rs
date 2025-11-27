@@ -1,6 +1,7 @@
+#![allow(dead_code)]
+
 use std::thread::JoinHandle;
 
-#[allow(dead_code)]
 pub fn current_thread_name_or_default(default_name: &str) -> String {
     std::thread::current()
         .name()

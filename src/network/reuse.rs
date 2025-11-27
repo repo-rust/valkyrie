@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::io;
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
 use std::thread;
