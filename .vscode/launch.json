@@ -20,7 +20,6 @@
                 }
             },
             "args": [
-                "--mode=reuseport",
                 "--address=127.0.0.1:8080",
                 "--tcp-handlers=4",
                 "--shards=3"

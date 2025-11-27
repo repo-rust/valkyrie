@@ -6,7 +6,10 @@ use tokio::net::TcpStream;
 
 use crate::protocol::redis_serialization_protocol::{RedisType, try_parse_type};
 
-pub async fn handle_connection(mut stream: TcpStream, shard_id: usize) -> io::Result<()> {
+pub async fn handle_tcp_connection_from_client(
+    mut stream: TcpStream,
+    shard_id: usize,
+) -> io::Result<()> {
     //
     // 10 KB should be enough to parse request bytes into RedisType
     //

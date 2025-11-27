@@ -3,9 +3,8 @@ use std::net::SocketAddr;
 #[derive(Debug, Clone, Copy, Parser)]
 #[command(name = "valkyrie", about = "High-performance Key-Value storage")]
 pub struct StartupArguments {
-    #[arg(long = "mode", value_enum, default_value_t = Mode::ReusePort, help = "Runtime mode: reuseport or dispatcher")]
-    pub mode: Mode,
-
+    // #[arg(long = "mode", value_enum, default_value_t = Mode::ReusePort, help = "Runtime mode: reuseport or dispatcher")]
+    // pub mode: Mode,
     #[arg(
         long = "address",
         default_value = "0.0.0.0:8080",
