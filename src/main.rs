@@ -69,15 +69,14 @@ fn main() -> io::Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        use crate::network::reuse::run_reuseport;
-        run_reuseport(arguments.address, arguments.tcp_handlers)?;
-        Ok(())
+        use crate::network::reuse::start_reuseport_tcp_handlers;
+        start_reuseport_tcp_handlers(&arguments)
     }
 
     #[cfg(target_os = "windows")]
     {
-        use crate::network::dispatcher::start_dispatcher;
-        start_dispatcher(&arguments)
+        use crate::network::dispatcher::start_dispatcher_tcp_handlers;
+        start_dispatcher_tcp_handlers(&arguments)
     }
 }
 
