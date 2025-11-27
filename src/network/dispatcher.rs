@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::io;
 use std::net::{TcpListener as StdTcpListener, TcpStream as StdTcpStream};
 use std::thread::{self};

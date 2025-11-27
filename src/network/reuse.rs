@@ -41,9 +41,10 @@ fn start_tcp_handler_threads(
     // Build one listener per tcp-handler. Each gets its own accept loop.
     //
     let mut listeners = Vec::with_capacity(tcp_handlers_count);
-    for _ in 0..tcp_handlers_count {
+    for tcp_handler_id in 0..tcp_handlers_count {
         listeners.push(
-            build_reuseport_listener(address).expect("Failed to create TCP listener for handler"),
+            build_reuseport_listener(tcp_handler_id, address)
+                .expect("Failed to create TCP listener for tcp-handler"),
         );
     }
 
@@ -126,7 +127,8 @@ fn start_tcp_handler_threads(
 
 // Build a nonblocking std::net::TcpListener with SO_REUSEPORT (where supported) so multiple
 // listeners can bind to the same addr:port across shards, Seastar-style.
-fn build_reuseport_listener(addr: SocketAddr) -> io::Result<StdTcpListener> {
+#[allow(unused_variables)]
+fn build_reuseport_listener(tcp_handler_id: usize, addr: SocketAddr) -> io::Result<StdTcpListener> {
     let domain = match addr {
         SocketAddr::V4(_) => Domain::IPV4,
         SocketAddr::V6(_) => Domain::IPV6,
