@@ -46,7 +46,24 @@ pub fn build_tcp_listener(addr: SocketAddr) -> io::Result<StdTcpListener> {
     Ok(listener)
 }
 
-pub async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> io::Result<()> {
+pub async fn run_client_connection(stream: TcpStream) {
+    if let Err(error) = handle_tcp_connection_from_client(stream).await {
+        // Expected client disconnects are not errors but normal cases.
+        match error.kind() {
+            std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted => {
+                tracing::debug!("Client disconnected: {error}");
+            }
+            _ => {
+                tracing::error!("Connection error: {error}");
+            }
+        }
+    }
+}
+
+async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> io::Result<()> {
     //
     // 10 KB should be enough to parse request bytes into RedisType
     //

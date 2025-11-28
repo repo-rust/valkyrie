@@ -7,7 +7,7 @@ use std::thread::{self};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
-use crate::network::connection_handler::{build_tcp_listener, handle_tcp_connection_from_client};
+use crate::network::connection_handler::{build_tcp_listener, run_client_connection};
 use crate::startup_arguments::StartupArguments;
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
@@ -86,13 +86,7 @@ fn start_tcp_handler_threads(
                         while let Some(std_stream) = stream_receiver.recv().await {
                             match TcpStream::from_std(std_stream) {
                                 Ok(stream) => {
-                                    tokio::spawn(async move {
-                                        if let Err(error) =
-                                            handle_tcp_connection_from_client(stream).await
-                                        {
-                                            tracing::error!("Connection error: {error}");
-                                        }
-                                    });
+                                    tokio::spawn(run_client_connection(stream));
                                 }
                                 Err(error) => {
                                     tracing::error!(

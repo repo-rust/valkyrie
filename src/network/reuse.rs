@@ -6,7 +6,7 @@ use std::thread::{self, JoinHandle};
 
 use tokio::net::TcpListener;
 
-use crate::network::connection_handler::{build_tcp_listener, handle_tcp_connection_from_client};
+use crate::network::connection_handler::{build_tcp_listener, run_client_connection};
 use crate::startup_arguments::StartupArguments;
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
@@ -72,15 +72,9 @@ fn start_tcp_handler_threads(
                         Ok(listener) => {
                             loop {
                                 match listener.accept().await {
-                                    Ok((stream, peer)) => {
+                                    Ok((stream, _)) => {
                                         // Each shard owns its accepted connections; no cross-shard handoff.
-                                        tokio::spawn(async move {
-                                            if let Err(e) =
-                                                handle_tcp_connection_from_client(stream).await
-                                            {
-                                                tracing::error!("Error with {}: {}", peer, e);
-                                            }
-                                        });
+                                        tokio::spawn(run_client_connection(stream));
                                     }
                                     Err(error) => {
                                         tracing::error!("TCP accept failed with: {}", error);
@@ -133,16 +127,3 @@ fn start_tcp_handler_threads(
 //     listener.set_nonblocking(true)?;
 //     Ok(listener)
 // }
-
-async fn shard_accept_loop(listener: TcpListener, shard_id: usize) -> io::Result<()> {
-    loop {
-        let (stream, peer) = listener.accept().await?;
-
-        // Each shard owns its accepted connections; no cross-shard handoff.
-        tokio::spawn(async move {
-            if let Err(e) = handle_tcp_connection_from_client(stream).await {
-                tracing::error!("[shard {shard_id}] error with {peer}: {e}");
-            }
-        });
-    }
-}
