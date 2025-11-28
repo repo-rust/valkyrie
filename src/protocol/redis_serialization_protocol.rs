@@ -1,4 +1,6 @@
 use bytes::BytesMut;
+use std::io;
+use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 #[derive(Debug, PartialEq)]
 pub enum RedisType {
@@ -9,6 +11,75 @@ pub enum RedisType {
     NullArray,
     Integer(i32),
     InvalidType(String),
+}
+
+/// Trait to encode a RedisType into RESP bytes.
+pub trait ToRespBytes {
+    /// Encode the value into a newly allocated Vec<u8> containing the RESP2/RESP3 bytes.
+    fn to_resp_bytes(&self) -> Vec<u8>;
+}
+
+impl ToRespBytes for RedisType {
+    fn to_resp_bytes(&self) -> Vec<u8> {
+        match self {
+            RedisType::SimpleString(s) => {
+                let mut v = Vec::with_capacity(1 + s.len() + 2);
+                v.push(b'+');
+                v.extend_from_slice(s.as_bytes());
+                v.extend_from_slice(b"\r\n");
+                v
+            }
+            RedisType::BulkString(s) => {
+                let data = s.as_bytes();
+                let len = data.len().to_string();
+                let mut v = Vec::with_capacity(1 + len.len() + 2 + data.len() + 2);
+                v.push(b'$');
+                v.extend_from_slice(len.as_bytes());
+                v.extend_from_slice(b"\r\n");
+                v.extend_from_slice(data);
+                v.extend_from_slice(b"\r\n");
+                v
+            }
+            RedisType::NullBulkString => b"$-1\r\n".to_vec(),
+            RedisType::Array(elements) => {
+                let len = elements.len().to_string();
+                // Prefix with header, then concatenate element encodings.
+                let mut v = Vec::new();
+                v.push(b'*');
+                v.extend_from_slice(len.as_bytes());
+                v.extend_from_slice(b"\r\n");
+                for e in elements {
+                    v.extend_from_slice(&e.to_resp_bytes());
+                }
+                v
+            }
+            RedisType::NullArray => b"*-1\r\n".to_vec(),
+            RedisType::Integer(i) => {
+                let s = i.to_string();
+                let mut v = Vec::with_capacity(1 + s.len() + 2);
+                v.push(b':');
+                v.extend_from_slice(s.as_bytes());
+                v.extend_from_slice(b"\r\n");
+                v
+            }
+            // Encode invalid type as a simple error to comply with RESP.
+            RedisType::InvalidType(msg) => {
+                let mut v = Vec::with_capacity(1 + msg.len() + 2);
+                v.push(b'-');
+                v.extend_from_slice(msg.as_bytes());
+                v.extend_from_slice(b"\r\n");
+                v
+            }
+        }
+    }
+}
+
+// Helper to write into an existing TcpStream.
+impl RedisType {
+    pub async fn write_resp_bytes(&self, stream: &mut TcpStream) -> io::Result<()> {
+        let resp_bytes = self.to_resp_bytes();
+        stream.write_all(&resp_bytes).await
+    }
 }
 
 pub fn try_parse_type(buf: &BytesMut) -> Option<RedisType> {
@@ -452,5 +523,81 @@ mod tests {
     fn parse_raw_value(raw_content: &str) -> Option<RedisType> {
         let buf = BytesMut::from(raw_content);
         try_parse_type(&buf)
+    }
+
+    //
+    // Encoding tests
+    //
+    #[test]
+    fn encode_simple_string() {
+        let v = RedisType::SimpleString("OK".to_owned()).to_resp_bytes();
+        assert_eq!(b"+OK\r\n", v.as_slice());
+    }
+
+    #[test]
+    fn encode_bulk_string() {
+        let v = RedisType::BulkString("bulk".to_owned()).to_resp_bytes();
+        assert_eq!(b"$4\r\nbulk\r\n", v.as_slice());
+    }
+
+    #[test]
+    fn encode_null_bulk_string() {
+        let v = RedisType::NullBulkString.to_resp_bytes();
+        assert_eq!(b"$-1\r\n", v.as_slice());
+    }
+
+    #[test]
+    fn encode_integer() {
+        let v = RedisType::Integer(-42).to_resp_bytes();
+        assert_eq!(b":-42\r\n", v.as_slice());
+    }
+
+    #[test]
+    fn encode_array_simple() {
+        let v = RedisType::Array(vec![
+            RedisType::SimpleString("OK".to_owned()),
+            RedisType::SimpleString("Ping".to_owned()),
+        ])
+        .to_resp_bytes();
+        assert_eq!(b"*2\r\n+OK\r\n+Ping\r\n", v.as_slice());
+    }
+
+    #[test]
+    fn encode_array_mixed() {
+        let v = RedisType::Array(vec![
+            RedisType::SimpleString("PONG".to_owned()),
+            RedisType::BulkString("bulk".to_owned()),
+            RedisType::BulkString("".to_owned()),
+        ])
+        .to_resp_bytes();
+        assert_eq!(b"*3\r\n+PONG\r\n$4\r\nbulk\r\n$0\r\n\r\n", v.as_slice());
+    }
+
+    #[test]
+    fn encode_array_nested_and_nulls() {
+        let v = RedisType::Array(vec![
+            RedisType::Array(vec![
+                RedisType::SimpleString("A".to_owned()),
+                RedisType::SimpleString("B".to_owned()),
+            ]),
+            RedisType::BulkString("abc".to_owned()),
+            RedisType::NullArray,
+            RedisType::NullBulkString,
+        ])
+        .to_resp_bytes();
+        // Expected:
+        // *4\r\n
+        // *2\r\n+A\r\n+B\r\n
+        // $3\r\nabc\r\n
+        // *-1\r\n
+        // $-1\r\n
+        let expected = b"*4\r\n*2\r\n+A\r\n+B\r\n$3\r\nabc\r\n*-1\r\n$-1\r\n";
+        assert_eq!(expected, v.as_slice());
+    }
+
+    #[test]
+    fn encode_invalid_type_as_error() {
+        let v = RedisType::InvalidType("Invalid integer 12a".to_owned()).to_resp_bytes();
+        assert_eq!(b"-Invalid integer 12a\r\n", v.as_slice());
     }
 }
