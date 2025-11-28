@@ -7,8 +7,8 @@ pub struct StartupArguments {
     // pub mode: Mode,
     #[arg(
         long = "address",
-        default_value = "0.0.0.0:8080",
-        help = "Socket address to bind, e.g. 0.0.0.0:8080"
+        default_value = "0.0.0.0:9191",
+        help = "Socket address to bind, default is 0.0.0.0:9191"
     )]
     pub address: SocketAddr,
 

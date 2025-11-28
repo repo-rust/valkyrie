@@ -16,8 +16,6 @@ mod thread_utils;
 // }
 
 fn main() -> io::Result<()> {
-    // println!("Main done...");
-
     // let (queue_sender, queue_receiver) = crossbeam_channel::unbounded::<Request>();
 
     // thread::spawn(move || {
