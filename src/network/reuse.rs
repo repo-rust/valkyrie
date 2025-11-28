@@ -9,7 +9,7 @@ use tokio::net::TcpListener;
 
 use crate::network::connection_handler::handle_tcp_connection_from_client;
 use crate::startup_arguments::StartupArguments;
-use crate::thread_utils::{current_thread_name_or_default, pin_current_thread_to_cpu};
+use crate::utils::thread_utils::{current_thread_name_or_default, pin_current_thread_to_cpu};
 
 pub fn start_reuseport_tcp_handlers(arguments: &StartupArguments) -> io::Result<()> {
     println!(

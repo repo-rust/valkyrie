@@ -1,5 +1,7 @@
 use bytes::BytesMut;
 
+use crate::utils::thread_utils::current_thread_name_or_default;
+
 #[derive(Debug, PartialEq)]
 pub enum RedisType {
     SimpleString(String),
@@ -15,7 +17,11 @@ pub fn try_parse_type(buf: &BytesMut) -> Option<RedisType> {
     let buf_content: String = String::from_utf8_lossy(&buf[..]).into_owned();
     let buf_content = buf_content.replace("\r\n", "\\r\\n");
 
-    println!("Parsing raw content =======> {buf_content}");
+    println!(
+        "[{}]Parsing raw content =======> {}",
+        current_thread_name_or_default("tcp-handler-???"),
+        buf_content
+    );
 
     let mut fwd = ForwardBuf { buf, offset: 0 };
 

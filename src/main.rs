@@ -4,12 +4,12 @@ use std::{io, thread};
 mod startup_arguments;
 
 use crate::startup_arguments::StartupArguments;
-use crate::thread_utils::{current_thread_name_or_default, pin_current_thread_to_cpu};
+use crate::utils::thread_utils::{current_thread_name_or_default, pin_current_thread_to_cpu};
 
 mod command;
 mod network;
 mod protocol;
-mod thread_utils;
+mod utils;
 
 // struct Request {
 //     response: oneshot::Sender<String>,

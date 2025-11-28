@@ -2,6 +2,7 @@ use crate::protocol::redis_serialization_protocol::RedisType;
 
 pub enum RedisCommand {
     Ping(Option<String>),
+    Command(),
 }
 
 impl RedisCommand {
@@ -14,7 +15,7 @@ impl RedisCommand {
 
                 match &elements[0] {
                     RedisType::BulkString(command_name) => {
-                        if command_name.to_lowercase() == "ping" {
+                        if command_name.to_uppercase() == "PING" {
                             if elements.len() == 1 {
                                 return Some(RedisCommand::Ping(None));
                             }
@@ -24,6 +25,8 @@ impl RedisCommand {
                                     return Some(RedisCommand::Ping(Some(arg.clone())));
                                 }
                             }
+                        } else if command_name.to_uppercase() == "COMMAND" {
+                            return Some(RedisCommand::Command());
                         }
 
                         None

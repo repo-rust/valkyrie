@@ -9,7 +9,7 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 use crate::network::connection_handler::handle_tcp_connection_from_client;
 use crate::startup_arguments::StartupArguments;
-use crate::thread_utils::{current_thread_name_or_default, pin_current_thread_to_cpu};
+use crate::utils::thread_utils::{current_thread_name_or_default, pin_current_thread_to_cpu};
 
 pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> io::Result<()> {
     let tcp_affinity_cores = arguments.shards..arguments.shards + arguments.tcp_handlers;
@@ -17,8 +17,20 @@ pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> io::Result
     let tcp_handler_channels =
         start_tcp_handler_threads(arguments.tcp_handlers, tcp_affinity_cores);
 
+    let maybe_listener = StdTcpListener::bind(arguments.address);
+
+    if let Err(error) = maybe_listener {
+        eprintln!(
+            "[{}] Failed to bind TCP listener to address {}: {}",
+            current_thread_name_or_default("main"),
+            arguments.address,
+            error
+        );
+        return Err(error);
+    }
+
     // Single acceptor in main thread. Hand off sockets to tcp-handlers by a simple hash.
-    let listener = StdTcpListener::bind(arguments.address)?;
+    let listener = maybe_listener.unwrap();
 
     loop {
         match listener.accept() {

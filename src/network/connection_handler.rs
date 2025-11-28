@@ -4,7 +4,7 @@ use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::thread_utils::current_thread_name_or_default;
+use crate::utils::thread_utils::current_thread_name_or_default;
 use crate::{
     command::factory::RedisCommand, protocol::redis_serialization_protocol::try_parse_type,
 };
@@ -48,6 +48,9 @@ pub async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> io::Res
                     // Simple string reply: PONG when no argument is provided.
                     stream.write_all(b"+PONG\r\n").await?;
                 }
+            }
+            Some(RedisCommand::Command()) => {
+                stream.write_all(b"*0\r\n").await?;
             }
             None => {
                 // For unsupported commands, do nothing for now.
