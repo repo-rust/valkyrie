@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-address=0.0.0.0/9191
+address=127.0.0.1/6379
 
 echo "Sending few RedisTypes in a loop of 10 iterations"
 

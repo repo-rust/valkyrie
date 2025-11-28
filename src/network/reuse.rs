@@ -81,10 +81,8 @@ fn start_tcp_handler_threads(
                                     Ok((stream, peer)) => {
                                         // Each shard owns its accepted connections; no cross-shard handoff.
                                         tokio::spawn(async move {
-                                            if let Err(e) = handle_tcp_connection_from_client(
-                                                stream, handler_id,
-                                            )
-                                            .await
+                                            if let Err(e) =
+                                                handle_tcp_connection_from_client(stream).await
                                             {
                                                 eprintln!(
                                                     "[{}] error with {}: {}",
@@ -160,7 +158,7 @@ async fn shard_accept_loop(listener: TcpListener, shard_id: usize) -> io::Result
 
         // Each shard owns its accepted connections; no cross-shard handoff.
         tokio::spawn(async move {
-            if let Err(e) = handle_tcp_connection_from_client(stream, shard_id).await {
+            if let Err(e) = handle_tcp_connection_from_client(stream).await {
                 eprintln!("[shard {shard_id}] error with {peer}: {e}");
             }
         });

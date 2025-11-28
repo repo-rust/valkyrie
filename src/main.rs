@@ -6,6 +6,7 @@ mod startup_arguments;
 use crate::startup_arguments::StartupArguments;
 use crate::thread_utils::{current_thread_name_or_default, pin_current_thread_to_cpu};
 
+mod command;
 mod network;
 mod protocol;
 mod thread_utils;

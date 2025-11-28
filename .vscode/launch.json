@@ -20,7 +20,7 @@
                 }
             },
             "args": [
-                "--address=0.0.0.0:9191",
+                "--address=127.0.0.1:6379",
                 "--tcp-handlers=4",
                 "--shards=3"
             ],

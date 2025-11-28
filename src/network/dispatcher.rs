@@ -80,8 +80,7 @@ fn start_tcp_handler_threads(
                                 Ok(stream) => {
                                     tokio::spawn(async move {
                                         if let Err(e) =
-                                            handle_tcp_connection_from_client(stream, handler_id)
-                                                .await
+                                            handle_tcp_connection_from_client(stream).await
                                         {
                                             eprintln!(
                                                 "[tcp-handler-{handler_id}] connection error: {e}"
