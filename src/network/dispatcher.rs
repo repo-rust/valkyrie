@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 
 use std::io;
-use std::net::{TcpListener as StdTcpListener, TcpStream as StdTcpStream};
+use std::net::TcpStream as StdTcpStream;
 use std::thread::{self};
 
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
-use crate::network::connection_handler::handle_tcp_connection_from_client;
+use crate::network::connection_handler::{build_tcp_listener, handle_tcp_connection_from_client};
 use crate::startup_arguments::StartupArguments;
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
@@ -17,7 +17,7 @@ pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> io::Result
     let tcp_handler_channels =
         start_tcp_handler_threads(arguments.tcp_handlers, tcp_affinity_cores);
 
-    let maybe_listener = StdTcpListener::bind(arguments.address);
+    let maybe_listener = build_tcp_listener(arguments.address);
 
     if let Err(error) = maybe_listener {
         tracing::error!(
@@ -87,18 +87,16 @@ fn start_tcp_handler_threads(
                             match TcpStream::from_std(std_stream) {
                                 Ok(stream) => {
                                     tokio::spawn(async move {
-                                        if let Err(e) =
+                                        if let Err(error) =
                                             handle_tcp_connection_from_client(stream).await
                                         {
-                                            tracing::error!(
-                                                "[tcp-handler-{handler_id}] connection error: {e}"
-                                            );
+                                            tracing::error!("Connection error: {error}");
                                         }
                                     });
                                 }
-                                Err(e) => {
+                                Err(error) => {
                                     tracing::error!(
-                                        "[tcp-handler-{handler_id}] from_std failed: {e}"
+                                        "Converting from std TCP stream to tokio failed: {error}"
                                     );
                                 }
                             }

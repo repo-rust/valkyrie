@@ -1,13 +1,12 @@
 #![allow(dead_code)]
 
 use std::io;
-use std::net::{SocketAddr, TcpListener as StdTcpListener};
+use std::net::SocketAddr;
 use std::thread::{self, JoinHandle};
 
-use socket2::{Domain, Protocol, Socket, Type};
 use tokio::net::TcpListener;
 
-use crate::network::connection_handler::handle_tcp_connection_from_client;
+use crate::network::connection_handler::{build_tcp_listener, handle_tcp_connection_from_client};
 use crate::startup_arguments::StartupArguments;
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
@@ -40,10 +39,9 @@ fn start_tcp_handler_threads(
     // Build one listener per tcp-handler. Each gets its own accept loop.
     //
     let mut listeners = Vec::with_capacity(tcp_handlers_count);
-    for tcp_handler_id in 0..tcp_handlers_count {
+    for _ in 0..tcp_handlers_count {
         listeners.push(
-            build_reuseport_listener(tcp_handler_id, address)
-                .expect("Failed to create TCP listener for tcp-handler"),
+            build_tcp_listener(address).expect("Failed to create TCP listener for tcp-handler"),
         );
     }
 
@@ -104,34 +102,37 @@ fn start_tcp_handler_threads(
     tcp_handlers
 }
 
-// Build a nonblocking std::net::TcpListener with SO_REUSEPORT (where supported) so multiple
-// listeners can bind to the same addr:port across shards, Seastar-style.
-#[allow(unused_variables)]
-fn build_reuseport_listener(tcp_handler_id: usize, addr: SocketAddr) -> io::Result<StdTcpListener> {
-    let domain = match addr {
-        SocketAddr::V4(_) => Domain::IPV4,
-        SocketAddr::V6(_) => Domain::IPV6,
-    };
-    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+//
+// TODO: remove below code after testing on Linux machine
+//
+// // Build a nonblocking std::net::TcpListener with SO_REUSEPORT (where supported) so multiple
+// // listeners can bind to the same addr:port across shards, Seastar-style.
+// #[allow(unused_variables)]
+// fn build_reuseport_listener(tcp_handler_id: usize, addr: SocketAddr) -> io::Result<StdTcpListener> {
+//     let domain = match addr {
+//         SocketAddr::V4(_) => Domain::IPV4,
+//         SocketAddr::V6(_) => Domain::IPV6,
+//     };
+//     let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
 
-    socket.set_reuse_address(true)?;
+//     socket.set_reuse_address(true)?;
 
-    // Enable SO_REUSEPORT for Linux
-    #[cfg(target_os = "linux")]
-    {
-        tracing::info!("SO_REUSEPORT enabled");
-        socket.set_reuse_port(true)?;
-    }
+//     // Enable SO_REUSEPORT for Linux
+//     #[cfg(target_os = "linux")]
+//     {
+//         tracing::info!("SO_REUSEPORT enabled");
+//         socket.set_reuse_port(true)?;
+//     }
 
-    socket.bind(&addr.into())?;
-    socket.listen(1024)?;
-    let listener: StdTcpListener = socket.into();
+//     socket.bind(&addr.into())?;
+//     socket.listen(1024)?;
+//     let listener: StdTcpListener = socket.into();
 
-    // Required for integrating with Tokio via TcpListener::from_std,
-    // which expects a nonblocking socket so the runtime can drive it with readiness-based I/O.
-    listener.set_nonblocking(true)?;
-    Ok(listener)
-}
+//     // Required for integrating with Tokio via TcpListener::from_std,
+//     // which expects a nonblocking socket so the runtime can drive it with readiness-based I/O.
+//     listener.set_nonblocking(true)?;
+//     Ok(listener)
+// }
 
 async fn shard_accept_loop(listener: TcpListener, shard_id: usize) -> io::Result<()> {
     loop {

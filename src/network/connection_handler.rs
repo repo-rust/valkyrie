@@ -1,4 +1,5 @@
 use std::io;
+use std::net::SocketAddr;
 
 use bytes::BytesMut;
 use tokio::io::AsyncReadExt;
@@ -8,6 +9,42 @@ use crate::protocol::redis_serialization_protocol::RedisType;
 use crate::{
     command::factory::RedisCommand, protocol::redis_serialization_protocol::try_parse_type,
 };
+
+use std::net::TcpListener as StdTcpListener;
+
+use socket2::{Domain, Protocol, Socket, Type};
+
+// Build a nonblocking std::net::TcpListener with SO_REUSEPORT (where supported) so multiple
+// listeners can bind to the same addr:port across shards.
+pub fn build_tcp_listener(addr: SocketAddr) -> io::Result<StdTcpListener> {
+    let domain = match addr {
+        SocketAddr::V4(_) => Domain::IPV4,
+        SocketAddr::V6(_) => Domain::IPV6,
+    };
+    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+
+    socket.set_reuse_address(true)?;
+
+    // Enable SO_REUSEPORT for Linux
+    #[cfg(target_os = "linux")]
+    {
+        tracing::info!("SO_REUSEPORT enabled");
+        socket.set_reuse_port(true)?;
+    }
+
+    socket.bind(&addr.into())?;
+    socket.listen(1024)?;
+    let listener: StdTcpListener = socket.into();
+
+    #[cfg(target_os = "linux")]
+    {
+        // Required for integrating with Tokio via TcpListener::from_std,
+        // which expects a nonblocking socket so the runtime can drive it with readiness-based I/O.
+        listener.set_nonblocking(true)?;
+    }
+
+    Ok(listener)
+}
 
 pub async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> io::Result<()> {
     //
