@@ -4,7 +4,6 @@ use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::utils::thread_utils::current_thread_name_or_default;
 use crate::{
     command::factory::RedisCommand, protocol::redis_serialization_protocol::try_parse_type,
 };
@@ -54,10 +53,7 @@ pub async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> io::Res
             }
             None => {
                 // For unsupported commands, do nothing for now.
-                println!(
-                    "[{}]: Unsupported command received.",
-                    current_thread_name_or_default("tcp-handler-???")
-                );
+                tracing::warn!("Unsupported command received.");
             }
         }
 

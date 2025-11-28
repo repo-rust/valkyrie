@@ -4,7 +4,7 @@ use std::{io, thread};
 mod startup_arguments;
 
 use crate::startup_arguments::StartupArguments;
-use crate::utils::thread_utils::{current_thread_name_or_default, pin_current_thread_to_cpu};
+use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
 mod command;
 mod network;
@@ -17,6 +17,16 @@ mod utils;
 // }
 
 fn main() -> io::Result<()> {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("valkyrie=debug")),
+        )
+        .with_thread_names(true)
+        .with_target(false)
+        .init();
+
     // let (queue_sender, queue_receiver) = crossbeam_channel::unbounded::<Request>();
 
     // thread::spawn(move || {
@@ -61,7 +71,7 @@ fn main() -> io::Result<()> {
 
     let arguments = StartupArguments::parse_args();
 
-    println!("[main] Program arguments: {arguments:?}");
+    tracing::info!("Program arguments: {arguments:?}");
 
     let storage_affinity_cores = 0..arguments.shards;
     let _ = start_storage_shard_threads(arguments.shards, storage_affinity_cores);
@@ -100,10 +110,7 @@ fn start_storage_shard_threads(
                     .expect("Failed to create tokio runtime");
 
                 rt.block_on(async move {
-                    println!(
-                        "[{}] started",
-                        current_thread_name_or_default("storage-shard-???")
-                    );
+                    tracing::info!("Started");
                     loop {
                         //TODO: storage shard logic here
                         tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;

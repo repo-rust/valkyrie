@@ -9,12 +9,11 @@ use tokio::net::TcpListener;
 
 use crate::network::connection_handler::handle_tcp_connection_from_client;
 use crate::startup_arguments::StartupArguments;
-use crate::utils::thread_utils::{current_thread_name_or_default, pin_current_thread_to_cpu};
+use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
 pub fn start_reuseport_tcp_handlers(arguments: &StartupArguments) -> io::Result<()> {
-    println!(
-        "[{}] Starting {} TCP handlers with SO_REUSEPORT",
-        current_thread_name_or_default("main"),
+    tracing::info!(
+        "Starting {} TCP handlers with SO_REUSEPORT",
         arguments.tcp_handlers
     );
 
@@ -69,10 +68,7 @@ fn start_tcp_handler_threads(
                     .expect("Failed to create tokio runtime for TCP handler");
 
                 runtime.block_on(async move {
-                    println!(
-                        "[{}] started",
-                        current_thread_name_or_default("tcp-handler-???")
-                    );
+                    tracing::info!("Started");
 
                     match TcpListener::from_std(std_listener) {
                         Ok(listener) => {
@@ -84,33 +80,18 @@ fn start_tcp_handler_threads(
                                             if let Err(e) =
                                                 handle_tcp_connection_from_client(stream).await
                                             {
-                                                eprintln!(
-                                                    "[{}] error with {}: {}",
-                                                    current_thread_name_or_default(
-                                                        "tcp-handler-???"
-                                                    ),
-                                                    peer,
-                                                    e
-                                                );
+                                                tracing::error!("Error with {}: {}", peer, e);
                                             }
                                         });
                                     }
                                     Err(error) => {
-                                        eprintln!(
-                                            "[{}] TCP accept failed with: {}",
-                                            current_thread_name_or_default("tcp-handler-???"),
-                                            error
-                                        );
+                                        tracing::error!("TCP accept failed with: {}", error);
                                     }
                                 }
                             }
                         }
                         Err(error) => {
-                            eprintln!(
-                                "[{}] Can't convert from STD listener to Tokio: {}",
-                                current_thread_name_or_default("tcp-handler-???"),
-                                error
-                            );
+                            tracing::error!("Can't convert from STD listener to Tokio: {}", error);
                         }
                     }
                 });
@@ -138,7 +119,7 @@ fn build_reuseport_listener(tcp_handler_id: usize, addr: SocketAddr) -> io::Resu
     // Enable SO_REUSEPORT for Linux
     #[cfg(target_os = "linux")]
     {
-        println!("[{tcp_handler_id}] SO_REUSEPORT enabled");
+        tracing::info!("SO_REUSEPORT enabled");
         socket.set_reuse_port(true)?;
     }
 
@@ -159,7 +140,7 @@ async fn shard_accept_loop(listener: TcpListener, shard_id: usize) -> io::Result
         // Each shard owns its accepted connections; no cross-shard handoff.
         tokio::spawn(async move {
             if let Err(e) = handle_tcp_connection_from_client(stream).await {
-                eprintln!("[shard {shard_id}] error with {peer}: {e}");
+                tracing::error!("[shard {shard_id}] error with {peer}: {e}");
             }
         });
     }

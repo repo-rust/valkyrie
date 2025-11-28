@@ -1,7 +1,5 @@
 use bytes::BytesMut;
 
-use crate::utils::thread_utils::current_thread_name_or_default;
-
 #[derive(Debug, PartialEq)]
 pub enum RedisType {
     SimpleString(String),
@@ -17,11 +15,7 @@ pub fn try_parse_type(buf: &BytesMut) -> Option<RedisType> {
     let buf_content: String = String::from_utf8_lossy(&buf[..]).into_owned();
     let buf_content = buf_content.replace("\r\n", "\\r\\n");
 
-    println!(
-        "[{}]Parsing raw content =======> {}",
-        current_thread_name_or_default("tcp-handler-???"),
-        buf_content
-    );
+    tracing::debug!("Parsing raw content =======> {}", buf_content);
 
     let mut fwd = ForwardBuf { buf, offset: 0 };
 
@@ -78,7 +72,7 @@ fn try_parse_type_forward(buf: &mut ForwardBuf) -> Option<RedisType> {
 
                 Some(RedisType::Array(elements))
             } else {
-                println!("Can't parse array length {arr_length}");
+                tracing::warn!("Can't parse array length {arr_length}");
 
                 Some(RedisType::InvalidType(
                     format!("Array length not a number {arr_length}").to_owned(),
@@ -108,7 +102,7 @@ fn try_parse_type_forward(buf: &mut ForwardBuf) -> Option<RedisType> {
                     // that str_value.len() == len here.
                     Some(RedisType::BulkString(str_value))
                 } else {
-                    println!("Can't fully read BulkString");
+                    tracing::warn!("Can't fully read BulkString");
                     None
                 }
             } else {

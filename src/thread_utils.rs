@@ -25,7 +25,7 @@ pub fn pin_current_thread_to_cpu(
     let core = core_affinity_range.start + (id % core_affinity_range.len());
 
     let _ = affinity::set_thread_affinity([core]);
-    println!("[{label}-{id}] Pinned to CPU {core}");
+    tracing::info!("[{label}-{id}] Pinned to CPU {core}");
 }
 
 #[cfg(target_os = "windows")]

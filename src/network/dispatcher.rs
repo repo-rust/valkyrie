@@ -9,7 +9,7 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 use crate::network::connection_handler::handle_tcp_connection_from_client;
 use crate::startup_arguments::StartupArguments;
-use crate::utils::thread_utils::{current_thread_name_or_default, pin_current_thread_to_cpu};
+use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
 pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> io::Result<()> {
     let tcp_affinity_cores = arguments.shards..arguments.shards + arguments.tcp_handlers;
@@ -20,9 +20,8 @@ pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> io::Result
     let maybe_listener = StdTcpListener::bind(arguments.address);
 
     if let Err(error) = maybe_listener {
-        eprintln!(
-            "[{}] Failed to bind TCP listener to address {}: {}",
-            current_thread_name_or_default("main"),
+        tracing::error!(
+            "Failed to bind TCP listener to address {}: {}",
             arguments.address,
             error
         );
@@ -38,7 +37,7 @@ pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> io::Result
                 // Required for integrating with Tokio via TcpListener::from_std,
                 // which expects a nonblocking socket so the runtime can drive it with readiness-based I/O.
                 if let Err(error) = stream.set_nonblocking(true) {
-                    eprintln!(
+                    tracing::error!(
                         "Can't move TCP accepted stream socket to non-blocking mode: {error}"
                     );
                     continue;
@@ -48,7 +47,7 @@ pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> io::Result
                 let tcp_handler_channel_idx = (peer.port() as usize) % tcp_handler_channels.len();
 
                 if let Err(e) = tcp_handler_channels[tcp_handler_channel_idx].send(stream) {
-                    eprintln!(
+                    tracing::error!(
                         "Failed to dispatch to TCP handler with index '{tcp_handler_channel_idx}': {e}"
                     );
                 }
@@ -81,10 +80,7 @@ fn start_tcp_handler_threads(
                     .expect("Failed to create tokio runtime");
 
                 rt.block_on(async move {
-                    println!(
-                        "[{}] started",
-                        current_thread_name_or_default("tcp-handler-???")
-                    );
+                    tracing::info!("Started");
 
                     loop {
                         while let Some(std_stream) = stream_receiver.recv().await {
@@ -94,14 +90,16 @@ fn start_tcp_handler_threads(
                                         if let Err(e) =
                                             handle_tcp_connection_from_client(stream).await
                                         {
-                                            eprintln!(
+                                            tracing::error!(
                                                 "[tcp-handler-{handler_id}] connection error: {e}"
                                             );
                                         }
                                     });
                                 }
                                 Err(e) => {
-                                    eprintln!("[tcp-handler-{handler_id}] from_std failed: {e}");
+                                    tracing::error!(
+                                        "[tcp-handler-{handler_id}] from_std failed: {e}"
+                                    );
                                 }
                             }
                         }

@@ -2,12 +2,12 @@
 
 use std::thread::JoinHandle;
 
-pub fn current_thread_name_or_default(default_name: &str) -> String {
-    std::thread::current()
-        .name()
-        .unwrap_or(default_name)
-        .to_string()
-}
+// pub fn current_thread_name_or_default(default_name: &str) -> String {
+//     std::thread::current()
+//         .name()
+//         .unwrap_or(default_name)
+//         .to_string()
+// }
 
 pub fn wait_for_all(handlers: Vec<JoinHandle<()>>) {
     for single_handler in handlers {
@@ -25,7 +25,7 @@ pub fn pin_current_thread_to_cpu(
     let core = core_affinity_range.start + (id % core_affinity_range.len());
 
     let _ = affinity::set_thread_affinity([core]);
-    println!("[{label}-{id}] Pinned to CPU {core}");
+    tracing::info!("[{label}-{id}] Pinned to CPU {core}");
 }
 
 #[cfg(target_os = "windows")]
