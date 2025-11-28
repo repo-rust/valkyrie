@@ -71,7 +71,7 @@ fn main() -> io::Result<()> {
 
     let arguments = StartupArguments::parse_args();
 
-    tracing::info!("Program arguments: {arguments:?}");
+    tracing::info!("StartupArguments: {arguments}");
 
     let storage_affinity_cores = 0..arguments.shards;
     let _ = start_storage_shard_threads(arguments.shards, storage_affinity_cores);

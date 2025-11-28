@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum};
+use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 #[derive(Debug, Clone, Copy, Parser)]
 #[command(name = "valkyrie", about = "High-performance Key-Value storage")]
@@ -45,6 +46,16 @@ impl StartupArguments {
         args.tcp_handlers = std::cmp::min(args.tcp_handlers, half);
 
         args
+    }
+}
+
+impl Display for StartupArguments {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "address={}, tcp_handlers={}, shards={}",
+            self.address, self.tcp_handlers, self.shards
+        )
     }
 }
 
