@@ -17,22 +17,14 @@ pub fn wait_for_all(handlers: Vec<JoinHandle<()>>) {
 
 /// Pin current thread to a CPU core for stronger isolation and better performance (Linux only).
 #[cfg(target_os = "linux")]
-pub fn pin_current_thread_to_cpu(
-    label: &str,
-    id: usize,
-    core_affinity_range: std::ops::Range<usize>,
-) {
+pub fn pin_current_thread_to_cpu(id: usize, core_affinity_range: std::ops::Range<usize>) {
     let core = core_affinity_range.start + (id % core_affinity_range.len());
 
     let _ = affinity::set_thread_affinity([core]);
-    tracing::info!("[{label}-{id}] Pinned to CPU {core}");
+    tracing::info!("Pinned to CPU {core}");
 }
 
 #[cfg(target_os = "windows")]
-pub fn pin_current_thread_to_cpu(
-    _label: &str,
-    _id: usize,
-    _core_affinity_range: std::ops::Range<usize>,
-) {
+pub fn pin_current_thread_to_cpu(_id: usize, _core_affinity_range: std::ops::Range<usize>) {
     // No-op for Windows platforms
 }

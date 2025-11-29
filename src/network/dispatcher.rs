@@ -71,16 +71,16 @@ fn start_tcp_handler_threads(
         let _ = thread::Builder::new()
             .name(format!("tcp-handler-{handler_id}"))
             .spawn(move || {
-                pin_current_thread_to_cpu("tcp-handler", handler_id, core_affinity_range_copy);
+                pin_current_thread_to_cpu(handler_id, core_affinity_range_copy);
 
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_io()
                     .enable_time()
                     .build()
-                    .expect("Failed to create tokio runtime");
+                    .expect("Failed to create tokio runtime ofr tcp-handler");
 
                 rt.block_on(async move {
-                    tracing::info!("Started");
+                    tracing::debug!("Started");
 
                     loop {
                         while let Some(std_stream) = stream_receiver.recv().await {
@@ -98,7 +98,7 @@ fn start_tcp_handler_threads(
                     }
                 });
             })
-            .expect("spawn shard thread");
+            .expect("Failed to spawn tcp-handler thread");
 
         tcp_handlers.push(stream_sender);
     }

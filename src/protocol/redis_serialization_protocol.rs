@@ -11,6 +11,7 @@ pub enum RedisType {
     NullArray,
     Integer(i32),
     InvalidType(String),
+    SimpleError(String),
 }
 
 /// Trait to encode a RedisType into RESP bytes.
@@ -19,14 +20,25 @@ pub trait ToRespBytes {
     fn to_resp_bytes(&self) -> Vec<u8>;
 }
 
+const RESP_TERMINATOR: &[u8] = b"\r\n";
+
 impl ToRespBytes for RedisType {
     fn to_resp_bytes(&self) -> Vec<u8> {
         match self {
+            // -Error message\r\n
+            RedisType::SimpleError(error_msg) => {
+                let mut v = Vec::with_capacity(1 + error_msg.len() + 2);
+                v.extend_from_slice(b"-");
+                v.extend_from_slice(error_msg.as_bytes());
+                v.extend_from_slice(RESP_TERMINATOR);
+                v
+            }
+
             RedisType::SimpleString(s) => {
                 let mut v = Vec::with_capacity(1 + s.len() + 2);
                 v.push(b'+');
                 v.extend_from_slice(s.as_bytes());
-                v.extend_from_slice(b"\r\n");
+                v.extend_from_slice(RESP_TERMINATOR);
                 v
             }
             RedisType::BulkString(s) => {
@@ -35,9 +47,9 @@ impl ToRespBytes for RedisType {
                 let mut v = Vec::with_capacity(1 + len.len() + 2 + data.len() + 2);
                 v.push(b'$');
                 v.extend_from_slice(len.as_bytes());
-                v.extend_from_slice(b"\r\n");
+                v.extend_from_slice(RESP_TERMINATOR);
                 v.extend_from_slice(data);
-                v.extend_from_slice(b"\r\n");
+                v.extend_from_slice(RESP_TERMINATOR);
                 v
             }
             RedisType::NullBulkString => b"$-1\r\n".to_vec(),
@@ -47,7 +59,7 @@ impl ToRespBytes for RedisType {
                 let mut v = Vec::new();
                 v.push(b'*');
                 v.extend_from_slice(len.as_bytes());
-                v.extend_from_slice(b"\r\n");
+                v.extend_from_slice(RESP_TERMINATOR);
                 for e in elements {
                     v.extend_from_slice(&e.to_resp_bytes());
                 }
@@ -59,7 +71,7 @@ impl ToRespBytes for RedisType {
                 let mut v = Vec::with_capacity(1 + s.len() + 2);
                 v.push(b':');
                 v.extend_from_slice(s.as_bytes());
-                v.extend_from_slice(b"\r\n");
+                v.extend_from_slice(RESP_TERMINATOR);
                 v
             }
             // Encode invalid type as a simple error to comply with RESP.
@@ -67,7 +79,7 @@ impl ToRespBytes for RedisType {
                 let mut v = Vec::with_capacity(1 + msg.len() + 2);
                 v.push(b'-');
                 v.extend_from_slice(msg.as_bytes());
-                v.extend_from_slice(b"\r\n");
+                v.extend_from_slice(RESP_TERMINATOR);
                 v
             }
         }
@@ -224,7 +236,7 @@ impl ForwardBuf<'_> {
             return -1;
         }
         for i in self.offset..(self.buf.len() - 1) {
-            if self.buf[i] == b'\r' && self.buf[i + 1] == b'\n' {
+            if self.buf[i] == RESP_TERMINATOR[0] && self.buf[i + 1] == RESP_TERMINATOR[1] {
                 return i as i32;
             }
         }

@@ -115,8 +115,11 @@ async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> io::Result<
                     .await?;
             }
             None => {
-                // For unsupported commands, do nothing for now.
                 tracing::warn!("Unsupported command received.");
+
+                RedisType::SimpleError("unknown command".to_string())
+                    .write_resp_bytes(&mut stream)
+                    .await?
             }
         }
         buf.clear();

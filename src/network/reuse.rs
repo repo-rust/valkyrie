@@ -47,17 +47,13 @@ fn start_tcp_handler_threads(
 
     let mut tcp_handlers = Vec::with_capacity(tcp_handlers_count);
 
-    for (handler_id, single_listener) in listeners.iter().enumerate().take(tcp_handlers_count) {
+    for (handler_id, single_listener) in listeners.into_iter().enumerate() {
         let core_affinity_range_copy = core_affinity_range.clone();
-
-        let std_listener = single_listener
-            .try_clone()
-            .expect("clone listener per shard");
 
         let tcp_handler = thread::Builder::new()
             .name(format!("tcp-handler-{handler_id}"))
             .spawn(move || {
-                pin_current_thread_to_cpu("tcp-handler", handler_id, core_affinity_range_copy);
+                pin_current_thread_to_cpu(handler_id, core_affinity_range_copy);
 
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_io()
@@ -66,9 +62,9 @@ fn start_tcp_handler_threads(
                     .expect("Failed to create tokio runtime for TCP handler");
 
                 runtime.block_on(async move {
-                    tracing::info!("Started");
+                    tracing::debug!("Started");
 
-                    match TcpListener::from_std(std_listener) {
+                    match TcpListener::from_std(single_listener) {
                         Ok(listener) => {
                             loop {
                                 match listener.accept().await {
@@ -83,47 +79,15 @@ fn start_tcp_handler_threads(
                             }
                         }
                         Err(error) => {
-                            tracing::error!("Can't convert from STD listener to Tokio: {}", error);
+                            tracing::error!("Can't convert from std listener to tokio: {}", error);
                         }
                     }
                 });
             })
-            .expect("spawn shard thread");
+            .expect("Failed to spawn tcp-handler thread");
 
         tcp_handlers.push(tcp_handler);
     }
 
     tcp_handlers
 }
-
-//
-// TODO: remove below code after testing on Linux machine
-//
-// // Build a nonblocking std::net::TcpListener with SO_REUSEPORT (where supported) so multiple
-// // listeners can bind to the same addr:port across shards, Seastar-style.
-// #[allow(unused_variables)]
-// fn build_reuseport_listener(tcp_handler_id: usize, addr: SocketAddr) -> io::Result<StdTcpListener> {
-//     let domain = match addr {
-//         SocketAddr::V4(_) => Domain::IPV4,
-//         SocketAddr::V6(_) => Domain::IPV6,
-//     };
-//     let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
-
-//     socket.set_reuse_address(true)?;
-
-//     // Enable SO_REUSEPORT for Linux
-//     #[cfg(target_os = "linux")]
-//     {
-//         tracing::info!("SO_REUSEPORT enabled");
-//         socket.set_reuse_port(true)?;
-//     }
-
-//     socket.bind(&addr.into())?;
-//     socket.listen(1024)?;
-//     let listener: StdTcpListener = socket.into();
-
-//     // Required for integrating with Tokio via TcpListener::from_std,
-//     // which expects a nonblocking socket so the runtime can drive it with readiness-based I/O.
-//     listener.set_nonblocking(true)?;
-//     Ok(listener)
-// }

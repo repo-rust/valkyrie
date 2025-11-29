@@ -101,7 +101,7 @@ fn start_storage_shard_threads(
         let shard_handler = thread::Builder::new()
             .name(format!("storage-shard-{shard_id}"))
             .spawn(move || {
-                pin_current_thread_to_cpu("storage-shard", shard_id, core_affinity_range_copy);
+                pin_current_thread_to_cpu(shard_id, core_affinity_range_copy);
 
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_io()
@@ -110,7 +110,7 @@ fn start_storage_shard_threads(
                     .expect("Failed to create tokio runtime");
 
                 rt.block_on(async move {
-                    tracing::info!("Started");
+                    tracing::debug!("Started");
                     loop {
                         //TODO: storage shard logic here
                         tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
