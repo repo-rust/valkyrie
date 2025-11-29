@@ -19,33 +19,17 @@ impl RedisCommand {
                 match &elements[0] {
                     RedisType::BulkString(command_name) => {
                         if command_name.to_uppercase() == "PING" {
-                            if elements.len() == 1 {
-                                return Ok(RedisCommand::Ping(None));
-                            }
-
-                            if elements.len() == 2 {
-                                if let RedisType::BulkString(arg) = &elements[1] {
-                                    return Ok(RedisCommand::Ping(Some(arg.clone())));
-                                }
-                            }
+                            parse_ping(elements)
                         } else if command_name.to_uppercase() == "COMMAND" {
-                            return Ok(RedisCommand::Command());
+                            parse_command()
                         } else if command_name.to_uppercase() == "ECHO" {
-                            if elements.len() != 2 {
-                                return Err("No argument for ECHO command".into());
-                            }
-
-                            if let RedisType::BulkString(arg) = &elements[1] {
-                                return Ok(RedisCommand::Echo(arg.clone()));
-                            } else {
-                                return Err("ECHO command argument is not BulkString".into());
-                            }
+                            parse_echo(elements)
+                        } else {
+                            return Err(format!(
+                                "Command type is not defined or unknown {}",
+                                command_name
+                            ));
                         }
-
-                        Err(format!(
-                            "Command type is not defined or unknown {}",
-                            command_name
-                        ))
                     }
                     _ => Err("RedisArray 0 element is not a BulkString".into()),
                 }
@@ -53,5 +37,37 @@ impl RedisCommand {
 
             _ => Err("undefined command".into()),
         }
+    }
+}
+
+fn parse_ping(elements: &[RedisType]) -> Result<RedisCommand, String> {
+    if elements.len() == 1 {
+        return Ok(RedisCommand::Ping(None));
+    }
+
+    if elements.len() == 2 {
+        if let RedisType::BulkString(arg) = &elements[1] {
+            Ok(RedisCommand::Ping(Some(arg.clone())))
+        } else {
+            Err("PING argument should be BulkString".into())
+        }
+    } else {
+        Err("Incorrect number of arguments for PING command".into())
+    }
+}
+
+fn parse_command() -> Result<RedisCommand, String> {
+    Ok(RedisCommand::Command())
+}
+
+fn parse_echo(elements: &[RedisType]) -> Result<RedisCommand, String> {
+    if elements.len() != 2 {
+        return Err("No argument for ECHO command".into());
+    }
+
+    if let RedisType::BulkString(arg) = &elements[1] {
+        Ok(RedisCommand::Echo(arg.clone()))
+    } else {
+        Err("ECHO argument is not a BulkString".into())
     }
 }
