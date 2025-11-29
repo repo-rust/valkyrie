@@ -1,5 +1,4 @@
 use bytes::BytesMut;
-use std::io;
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 #[derive(Debug, PartialEq)]
@@ -88,9 +87,10 @@ impl ToRespBytes for RedisType {
 
 // Helper to write into an existing TcpStream.
 impl RedisType {
-    pub async fn write_resp_bytes(&self, stream: &mut TcpStream) -> io::Result<()> {
+    pub async fn write_resp_bytes(&self, stream: &mut TcpStream) -> anyhow::Result<()> {
         let resp_bytes = self.to_resp_bytes();
-        stream.write_all(&resp_bytes).await
+        stream.write_all(&resp_bytes).await?;
+        Ok(())
     }
 }
 

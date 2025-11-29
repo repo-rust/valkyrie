@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use std::io;
 use std::net::SocketAddr;
 use std::thread::{self, JoinHandle};
 
@@ -10,7 +9,7 @@ use crate::network::connection_handler::{build_tcp_listener, run_client_connecti
 use crate::startup_arguments::StartupArguments;
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
-pub fn start_reuseport_tcp_handlers(arguments: &StartupArguments) -> io::Result<()> {
+pub fn start_reuseport_tcp_handlers(arguments: &StartupArguments) -> anyhow::Result<()> {
     tracing::info!(
         "Starting {} TCP handlers with SO_REUSEPORT",
         arguments.tcp_handlers

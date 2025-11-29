@@ -1,4 +1,3 @@
-use std::io;
 use std::net::SocketAddr;
 
 use bytes::BytesMut;
@@ -16,7 +15,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 
 // Build a nonblocking std::net::TcpListener with SO_REUSEPORT (where supported) so multiple
 // listeners can bind to the same addr:port across shards.
-pub fn build_tcp_listener(addr: SocketAddr) -> io::Result<StdTcpListener> {
+pub fn build_tcp_listener(addr: SocketAddr) -> anyhow::Result<StdTcpListener> {
     let domain = match addr {
         SocketAddr::V4(_) => Domain::IPV4,
         SocketAddr::V6(_) => Domain::IPV6,
@@ -49,21 +48,25 @@ pub fn build_tcp_listener(addr: SocketAddr) -> io::Result<StdTcpListener> {
 pub async fn run_client_connection(stream: TcpStream) {
     if let Err(error) = handle_tcp_connection_from_client(stream).await {
         // Expected client disconnects are not errors but normal cases.
-        match error.kind() {
-            std::io::ErrorKind::UnexpectedEof
-            | std::io::ErrorKind::BrokenPipe
-            | std::io::ErrorKind::ConnectionReset
-            | std::io::ErrorKind::ConnectionAborted => {
-                tracing::debug!("Client disconnected: {error}");
+        if let Some(io_err) = error.downcast_ref::<std::io::Error>() {
+            match io_err.kind() {
+                std::io::ErrorKind::UnexpectedEof
+                | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted => {
+                    tracing::debug!("Client disconnected: {io_err}");
+                }
+                _ => {
+                    tracing::error!("Connection error: {io_err}");
+                }
             }
-            _ => {
-                tracing::error!("Connection error: {error}");
-            }
+        } else {
+            tracing::error!("Connection error: {error}");
         }
     }
 }
 
-async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> io::Result<()> {
+async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> anyhow::Result<()> {
     //
     // 10 KB should be enough to parse request bytes into RedisType
     //

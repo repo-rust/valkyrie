@@ -1,5 +1,5 @@
+use std::thread;
 use std::thread::JoinHandle;
-use std::{io, thread};
 
 mod startup_arguments;
 
@@ -16,7 +16,7 @@ mod utils;
 //     data: String,
 // }
 
-fn main() -> io::Result<()> {
+fn main() -> anyhow::Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -79,14 +79,16 @@ fn main() -> io::Result<()> {
     #[cfg(target_os = "linux")]
     {
         use crate::network::reuse::start_reuseport_tcp_handlers;
-        start_reuseport_tcp_handlers(&arguments)
+        start_reuseport_tcp_handlers(&arguments)?;
     }
 
     #[cfg(target_os = "windows")]
     {
         use crate::network::dispatcher::start_dispatcher_tcp_handlers;
-        start_dispatcher_tcp_handlers(&arguments)
+        start_dispatcher_tcp_handlers(&arguments)?;
     }
+
+    Ok(())
 }
 
 fn start_storage_shard_threads(

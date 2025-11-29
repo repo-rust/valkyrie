@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use std::io;
 use std::net::TcpStream as StdTcpStream;
 use std::thread::{self};
 
@@ -11,7 +10,7 @@ use crate::network::connection_handler::{build_tcp_listener, run_client_connecti
 use crate::startup_arguments::StartupArguments;
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
-pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> io::Result<()> {
+pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> anyhow::Result<()> {
     let tcp_affinity_cores = arguments.shards..arguments.shards + arguments.tcp_handlers;
 
     let tcp_handler_channels =
@@ -52,7 +51,7 @@ pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> io::Result
                     );
                 }
             }
-            Err(error) => return Err(error),
+            Err(error) => return Err(error.into()),
         }
     }
 }
@@ -77,7 +76,7 @@ fn start_tcp_handler_threads(
                     .enable_io()
                     .enable_time()
                     .build()
-                    .expect("Failed to create tokio runtime ofr tcp-handler");
+                    .expect("Failed to create tokio runtime for tcp-handler");
 
                 rt.block_on(async move {
                     tracing::debug!("Started");
