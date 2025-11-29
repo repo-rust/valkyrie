@@ -95,7 +95,7 @@ async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> anyhow::Res
         let maybe_redis_command = RedisCommand::from_redis_type(&received_redis_type);
 
         match maybe_redis_command {
-            Some(RedisCommand::Ping(maybe_argument)) => {
+            Ok(RedisCommand::Ping(maybe_argument)) => {
                 if let Some(argument) = maybe_argument {
                     // let response_bytes = format!("${}\r\n{}\r\n", argument.len(), argument);
 
@@ -112,15 +112,21 @@ async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> anyhow::Res
                         .await?;
                 }
             }
-            Some(RedisCommand::Command()) => {
+            Ok(RedisCommand::Command()) => {
                 RedisType::Array(vec![])
                     .write_resp_bytes(&mut stream)
                     .await?;
             }
-            None => {
-                tracing::warn!("Unsupported command received.");
+            Ok(RedisCommand::Echo(argument)) => {
+                // Bulk string reply: the given string.
+                RedisType::BulkString(argument)
+                    .write_resp_bytes(&mut stream)
+                    .await?;
+            }
+            Err(error_msg) => {
+                tracing::warn!("Unsupported command received: {}", error_msg);
 
-                RedisType::SimpleError("unknown command".to_string())
+                RedisType::SimpleError(error_msg)
                     .write_resp_bytes(&mut stream)
                     .await?
             }
