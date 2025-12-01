@@ -5,10 +5,7 @@ use std::{
 
 use tokio::sync::oneshot;
 
-use crate::{
-    command::factory::RedisCommand, protocol::redis_serialization_protocol::RedisType,
-    utils::thread_utils::pin_current_thread_to_cpu,
-};
+use crate::{command::factory::RedisCommand, utils::thread_utils::pin_current_thread_to_cpu};
 
 pub struct StorageEngine {
     storage_shards: Vec<StorageShard>,
@@ -22,7 +19,14 @@ struct StorageShard {
 pub struct StorageCommandEnvelope {
     command: Option<RedisCommand>,
     response_channel: Option<oneshot::Sender<StorageCommandEnvelope>>,
-    pub response: Option<RedisType>,
+    pub response: Option<StorageResponse>,
+}
+
+#[derive(Debug)]
+pub enum StorageResponse {
+    KeyValue { value: String },
+    Nill,
+    Success,
 }
 
 impl StorageEngine {
@@ -56,17 +60,17 @@ impl StorageEngine {
 
                             match redis_command {
                                 RedisCommand::Get { key } => {
-                                    let value_by_key = match local_map.get(&key) {
-                                        Some(value) => value,
-                                        None => "Not found",
+                                    let reponse_value = match local_map.get(&key) {
+                                        Some(value) => StorageResponse::KeyValue {
+                                            value: value.to_string(),
+                                        },
+                                        None => StorageResponse::Nill,
                                     };
 
                                     let res = StorageCommandEnvelope {
                                         command: None,
                                         response_channel: None,
-                                        response: Some(RedisType::SimpleString(
-                                            value_by_key.to_owned(),
-                                        )),
+                                        response: Some(reponse_value),
                                     };
 
                                     storage_request
@@ -81,7 +85,7 @@ impl StorageEngine {
                                     let res = StorageCommandEnvelope {
                                         command: None,
                                         response_channel: None,
-                                        response: Some(RedisType::SimpleString("OK".to_string())),
+                                        response: Some(StorageResponse::Success),
                                     };
 
                                     storage_request

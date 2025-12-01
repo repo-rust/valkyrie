@@ -33,8 +33,7 @@ impl RedisCommand {
                             parse_get(elements)
                         } else {
                             Err(format!(
-                                "Command type is not defined or unknown {}",
-                                command_name
+                                "Command type is not defined or unknown {command_name}"
                             ))
                         }
                     }

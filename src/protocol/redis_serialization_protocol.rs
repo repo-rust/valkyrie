@@ -11,6 +11,8 @@ pub enum RedisType {
     Integer(i32),
     InvalidType(String),
     SimpleError(String),
+    #[allow(dead_code)]
+    Null,
 }
 
 /// Trait to encode a RedisType into RESP bytes.
@@ -78,6 +80,14 @@ impl ToRespBytes for RedisType {
                 let mut v = Vec::with_capacity(1 + msg.len() + 2);
                 v.push(b'-');
                 v.extend_from_slice(msg.as_bytes());
+                v.extend_from_slice(RESP_TERMINATOR);
+                v
+            }
+            //  _\r\n
+            // https://redis.io/docs/latest/develop/reference/protocol-spec/#nulls
+            RedisType::Null => {
+                let mut v = Vec::with_capacity(1);
+                v.push(b'_');
                 v.extend_from_slice(RESP_TERMINATOR);
                 v
             }

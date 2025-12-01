@@ -6,7 +6,7 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
 use crate::protocol::redis_serialization_protocol::RedisType;
-use crate::storage::engine::StorageEngine;
+use crate::storage::engine::{StorageEngine, StorageResponse};
 use crate::{
     command::factory::RedisCommand, protocol::redis_serialization_protocol::try_parse_type,
 };
@@ -129,25 +129,49 @@ async fn handle_tcp_connection_from_client(
                     .await?;
             }
             Ok(RedisCommand::Set { key, value }) => {
-                //TODO: handle properly here
                 let envelope = storage_engine
                     .execute(RedisCommand::Set { key, value })
                     .await?;
 
-                let redis_type_as_resp = envelope.response.expect("No reponse");
+                let command_response = envelope.response.expect("No response");
 
-                // Bulk string reply: the given string.
-                redis_type_as_resp.write_resp_bytes(&mut stream).await?;
+                if let StorageResponse::Success = command_response {
+                    // Simple string reply: OK: The key was set.
+                    RedisType::SimpleString("OK".to_string())
+                        .write_resp_bytes(&mut stream)
+                        .await?;
+                } else {
+                    RedisType::SimpleError("Error occurred during SET".to_string())
+                        .write_resp_bytes(&mut stream)
+                        .await?;
+                }
             }
 
             Ok(RedisCommand::Get { key }) => {
-                //TODO: handle properly here
-
                 let envelope = storage_engine.execute(RedisCommand::Get { key }).await?;
 
-                let redis_type_as_resp = envelope.response.expect("No reponse");
+                let command_response = envelope.response.expect("No response");
 
-                redis_type_as_resp.write_resp_bytes(&mut stream).await?;
+                match command_response {
+                    StorageResponse::Nill => {
+                        // $-1\r\n
+                        // https://redis.io/docs/latest/develop/reference/protocol-spec/#bulk-strings
+                        RedisType::NullBulkString
+                            .write_resp_bytes(&mut stream)
+                            .await?;
+                    }
+                    StorageResponse::KeyValue { value } => {
+                        // Bulk string reply: the value of the key.
+                        RedisType::BulkString(value)
+                            .write_resp_bytes(&mut stream)
+                            .await?;
+                    }
+                    _ => {
+                        RedisType::SimpleError("Error occurred during GET".to_string())
+                            .write_resp_bytes(&mut stream)
+                            .await?;
+                    }
+                }
             }
 
             Err(error_msg) => {
