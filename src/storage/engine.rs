@@ -72,9 +72,6 @@ impl StorageEngine {
                         tracing::debug!("Started");
 
                         for storage_command in queue_receiver.iter() {
-
-                                    
-
                             if let StorageCommandEnvelope::Request {
                                 request,
                                 reply_channel,
@@ -91,20 +88,13 @@ impl StorageEngine {
                                             None => StorageResponse::Nill,
                                         };
 
-                                        reply_channel
-                                            .send(StorageCommandEnvelope::Response {
-                                                response: response_value,
-                                            })
-                                            .expect("Failed to send response for GET");
+                                        Self::send_reply(reply_channel, response_value);
+
                                     }
                                     StorageRequest::Set { key, value } => {
                                         local_map.insert(key, value);
 
-                                        reply_channel
-                                            .send(StorageCommandEnvelope::Response {
-                                                response: StorageResponse::Success,
-                                            })
-                                            .expect("Failed to send response SET");
+                                        Self::send_reply(reply_channel,  StorageResponse::Success);
                                     }
                                 }
                             }
@@ -123,6 +113,17 @@ impl StorageEngine {
 
         Self {
             storage_shards: storage_threads,
+        }
+    }
+
+    fn send_reply(
+        reply_channel: oneshot::Sender<StorageCommandEnvelope>,
+        storage_reponse: StorageResponse,
+    ) {
+        if let Err(error) = reply_channel.send(StorageCommandEnvelope::Response {
+            response: storage_reponse,
+        }) {
+            tracing::error!("Failed to send reply {error:?}");
         }
     }
 

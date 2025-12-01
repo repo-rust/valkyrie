@@ -1,5 +1,7 @@
 # Valkyrie Key-Value Store
 
+<img src="assets/logo-horizontal.png" alt="Project Logo" width="700"/>
+
 Valkyrie is a lightweight, high‑performance key‑value store that speaks the Redis Serialization Protocol (RESP). It aims to be simple to run locally, easy to integrate with existing Redis clients, and a clean, idiomatic Rust codebase for learning and experimentation.
 Valkyrie is a minimal Redis‑compatible server built in Rust. It accepts connections over TCP and understands a subset of Redis commands over RESP. The storage engine is in‑memory and sharded for scalability on multi‑core systems.
 

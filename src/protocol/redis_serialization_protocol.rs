@@ -24,6 +24,8 @@ pub trait ToRespBytes {
 const RESP_TERMINATOR: &[u8] = b"\r\n";
 
 impl ToRespBytes for RedisType {
+    // TODO: Check if we can use externally allocated `let mut out_buf = BytesMut::with_capacity(10 * 1024);`
+    // here instead of creating Vector every time.
     fn to_resp_bytes(&self) -> Vec<u8> {
         match self {
             // -Error message\r\n
