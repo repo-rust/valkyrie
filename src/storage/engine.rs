@@ -1,25 +1,38 @@
 use std::{
     collections::HashMap,
+    hash::DefaultHasher,
     thread::{self},
 };
 
+use std::hash::{Hash, Hasher};
+
 use tokio::sync::oneshot;
 
-use crate::{command::factory::RedisCommand, utils::thread_utils::pin_current_thread_to_cpu};
+use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
 pub struct StorageEngine {
     storage_shards: Vec<StorageShard>,
 }
 
 struct StorageShard {
-    request_channel: crossbeam_channel::Sender<StorageCommandEnvelope>,
+    commands_channel: crossbeam_channel::Sender<StorageCommandEnvelope>,
 }
 
 #[derive(Debug)]
-pub struct StorageCommandEnvelope {
-    command: Option<RedisCommand>,
-    response_channel: Option<oneshot::Sender<StorageCommandEnvelope>>,
-    pub response: Option<StorageResponse>,
+enum StorageCommandEnvelope {
+    Request {
+        request: StorageRequest,
+        reply_channel: oneshot::Sender<StorageCommandEnvelope>,
+    },
+    Response {
+        response: StorageResponse,
+    },
+}
+
+#[derive(Debug)]
+pub enum StorageRequest {
+    Get { key: String },
+    Set { key: String, value: String },
 }
 
 #[derive(Debug)]
@@ -31,6 +44,9 @@ pub enum StorageResponse {
 
 impl StorageEngine {
     pub fn new(shards: usize, core_affinity_range: std::ops::Range<usize>) -> Self {
+        // shards count should be greater than 0, convert to 1 if 0
+        let shards = if shards == 0 { 1 } else { shards };
+
         let mut storage_threads = Vec::with_capacity(shards);
 
         for shard_id in 0..shards {
@@ -55,48 +71,45 @@ impl StorageEngine {
 
                         tracing::debug!("Started");
 
-                        for storage_request in queue_receiver.iter() {
-                            let redis_command = storage_request.command.unwrap();
+                        for storage_command in queue_receiver.iter() {
 
-                            match redis_command {
-                                RedisCommand::Get { key } => {
-                                    let reponse_value = match local_map.get(&key) {
-                                        Some(value) => StorageResponse::KeyValue {
-                                            value: value.to_string(),
-                                        },
-                                        None => StorageResponse::Nill,
-                                    };
+                                    
 
-                                    let res = StorageCommandEnvelope {
-                                        command: None,
-                                        response_channel: None,
-                                        response: Some(reponse_value),
-                                    };
+                            if let StorageCommandEnvelope::Request {
+                                request,
+                                reply_channel,
+                            } = storage_command
+                            {
+                                tracing::debug!("Engine handling storage request {:?}", request);
 
-                                    storage_request
-                                        .response_channel
-                                        .unwrap()
-                                        .send(res)
-                                        .expect("Failed to send response");
+                                match request {
+                                    StorageRequest::Get { key } => {
+                                        let response_value = match local_map.get(&key) {
+                                            Some(value) => StorageResponse::KeyValue {
+                                                value: value.to_string(),
+                                            },
+                                            None => StorageResponse::Nill,
+                                        };
+
+                                        reply_channel
+                                            .send(StorageCommandEnvelope::Response {
+                                                response: response_value,
+                                            })
+                                            .expect("Failed to send response for GET");
+                                    }
+                                    StorageRequest::Set { key, value } => {
+                                        local_map.insert(key, value);
+
+                                        reply_channel
+                                            .send(StorageCommandEnvelope::Response {
+                                                response: StorageResponse::Success,
+                                            })
+                                            .expect("Failed to send response SET");
+                                    }
                                 }
-                                RedisCommand::Set { key, value } => {
-                                    local_map.insert(key, value);
-
-                                    let res = StorageCommandEnvelope {
-                                        command: None,
-                                        response_channel: None,
-                                        response: Some(StorageResponse::Success),
-                                    };
-
-                                    storage_request
-                                        .response_channel
-                                        .unwrap()
-                                        .send(res)
-                                        .expect("Failed to send response");
-                                }
-                                _ => {
-                                    tracing::warn!("Unsupported redis command {:?}", redis_command)
-                                }
+                            }
+                            else {
+                                unreachable!("Incorrect 'StorageCommandEnvelope' type received expected 'Request' but found 'Response'")
                             }
                         }
                     });
@@ -104,7 +117,7 @@ impl StorageEngine {
                 .expect("Can't spawn storage-shard thread");
 
             storage_threads.push(StorageShard {
-                request_channel: queue_sender,
+                commands_channel: queue_sender,
             });
         }
 
@@ -115,22 +128,59 @@ impl StorageEngine {
 
     pub async fn execute(
         &self,
-        redis_command: RedisCommand,
-    ) -> anyhow::Result<StorageCommandEnvelope> {
+        storage_request: StorageRequest,
+    ) -> anyhow::Result<StorageResponse> {
+        // this channel will be used like a future/promise
         let (sender, receiver) = oneshot::channel::<StorageCommandEnvelope>();
 
-        let request = StorageCommandEnvelope {
-            command: Some(redis_command),
-            response_channel: Some(sender),
-            response: None,
-        };
-
-        let storage_thread = &self.storage_shards[0];
+        let storage_thread = self.find_shard_for_request(&storage_request);
 
         // TODO: handle properly all errors here
-        storage_thread.request_channel.send(request)?;
+        storage_thread
+            .commands_channel
+            .send(StorageCommandEnvelope::Request {
+                request: storage_request,
+                reply_channel: sender,
+            })?;
 
-        let response = receiver.await?;
-        Ok(response)
+        let response_envelope = receiver.await?;
+
+        if let StorageCommandEnvelope::Response { response } = response_envelope {
+            Ok(response)
+        } else {
+            unreachable!(
+                "Invalid 'StorageCommandEnvelope' response type received, expected 'Response' but found 'Request'"
+            );
+        }
+    }
+
+    /// Selects the storage shard for a request by hashing the key.
+    ///
+    /// The shard index is computed as `hash(key) % shard_count`.
+    /// Both GET and SET variants use the request key, ensuring that reads
+    /// go to the same shard where writes for that key were stored. This
+    /// keeps per-key data localized and avoids cross-shard coordination.
+    ///
+    /// Implementation details:
+    /// - Uses `DefaultHasher` (SipHash) to hash the key via `hash_string`.
+    /// - Reduces the hash with modulo `self.storage_shards.len()` to obtain
+    ///   a stable index into the shard vector.
+    /// - The mapping is stable for a fixed shard count; changing the number
+    ///   of shards will remap keys (this is not consistent hashing).
+    fn find_shard_for_request(&self, storage_request: &StorageRequest) -> &StorageShard {
+        let shard_idx = match storage_request {
+            StorageRequest::Get { key } => self.hash_string(key) % self.storage_shards.len(),
+            StorageRequest::Set { key, value: _ } => {
+                self.hash_string(key) % self.storage_shards.len()
+            }
+        };
+
+        &self.storage_shards[shard_idx]
+    }
+
+    fn hash_string(&self, value: &str) -> usize {
+        let mut hasher = DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish() as usize
     }
 }

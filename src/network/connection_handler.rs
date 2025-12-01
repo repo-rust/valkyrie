@@ -6,7 +6,7 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
 use crate::protocol::redis_serialization_protocol::RedisType;
-use crate::storage::engine::{StorageEngine, StorageResponse};
+use crate::storage::engine::{StorageEngine, StorageRequest, StorageResponse};
 use crate::{
     command::factory::RedisCommand, protocol::redis_serialization_protocol::try_parse_type,
 };
@@ -129,11 +129,9 @@ async fn handle_tcp_connection_from_client(
                     .await?;
             }
             Ok(RedisCommand::Set { key, value }) => {
-                let envelope = storage_engine
-                    .execute(RedisCommand::Set { key, value })
+                let command_response = storage_engine
+                    .execute(StorageRequest::Set { key, value })
                     .await?;
-
-                let command_response = envelope.response.expect("No response");
 
                 if let StorageResponse::Success = command_response {
                     // Simple string reply: OK: The key was set.
@@ -148,9 +146,7 @@ async fn handle_tcp_connection_from_client(
             }
 
             Ok(RedisCommand::Get { key }) => {
-                let envelope = storage_engine.execute(RedisCommand::Get { key }).await?;
-
-                let command_response = envelope.response.expect("No response");
+                let command_response = storage_engine.execute(StorageRequest::Get { key }).await?;
 
                 match command_response {
                     StorageResponse::Nill => {

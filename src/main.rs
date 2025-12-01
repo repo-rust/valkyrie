@@ -10,11 +10,6 @@ mod protocol;
 mod storage;
 mod utils;
 
-// struct Request {
-//     response: oneshot::Sender<String>,
-//     data: String,
-// }
-
 fn main() -> anyhow::Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
