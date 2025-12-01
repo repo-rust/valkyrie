@@ -1,4 +1,5 @@
-name: Build and test
+# Build, unit tests, integration tests, static code analysis and packaging
+name: Commit Stage
 
 on:
   push:
@@ -23,5 +24,5 @@ jobs:
     - name: Build
       run: cargo build --verbose
 
-    - name: Run tests
+    - name: Run unit tests
       run: cargo test --verbose
