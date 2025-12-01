@@ -1,10 +1,12 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use bytes::BytesMut;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
 use crate::protocol::redis_serialization_protocol::RedisType;
+use crate::storage::engine::StorageEngine;
 use crate::{
     command::factory::RedisCommand, protocol::redis_serialization_protocol::try_parse_type,
 };
@@ -45,8 +47,8 @@ pub fn build_tcp_listener(addr: SocketAddr) -> anyhow::Result<StdTcpListener> {
     Ok(listener)
 }
 
-pub async fn run_client_connection(stream: TcpStream) {
-    if let Err(error) = handle_tcp_connection_from_client(stream).await {
+pub async fn run_client_connection(stream: TcpStream, storage_engine: Arc<StorageEngine>) {
+    if let Err(error) = handle_tcp_connection_from_client(stream, storage_engine).await {
         // Expected client disconnects are not errors but normal cases.
         if let Some(io_err) = error.downcast_ref::<std::io::Error>() {
             match io_err.kind() {
@@ -66,7 +68,10 @@ pub async fn run_client_connection(stream: TcpStream) {
     }
 }
 
-async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> anyhow::Result<()> {
+async fn handle_tcp_connection_from_client(
+    mut stream: TcpStream,
+    storage_engine: Arc<StorageEngine>,
+) -> anyhow::Result<()> {
     //
     // 10 KB should be enough to parse request bytes into RedisType
     //
@@ -124,20 +129,25 @@ async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> anyhow::Res
                     .await?;
             }
             Ok(RedisCommand::Set { key, value }) => {
-                tracing::info!("SET {key} => {value}");
+                //TODO: handle properly here
+                let envelope = storage_engine
+                    .execute(RedisCommand::Set { key, value })
+                    .await?;
+
+                let redis_type_as_resp = envelope.response.expect("No reponse");
 
                 // Bulk string reply: the given string.
-                RedisType::SimpleString("OK".to_owned())
-                    .write_resp_bytes(&mut stream)
-                    .await?;
+                redis_type_as_resp.write_resp_bytes(&mut stream).await?;
             }
 
             Ok(RedisCommand::Get { key }) => {
-                tracing::info!("GET {key}");
+                //TODO: handle properly here
 
-                RedisType::BulkString("<not-implemented>".to_owned())
-                    .write_resp_bytes(&mut stream)
-                    .await?;
+                let envelope = storage_engine.execute(RedisCommand::Get { key }).await?;
+
+                let redis_type_as_resp = envelope.response.expect("No reponse");
+
+                redis_type_as_resp.write_resp_bytes(&mut stream).await?;
             }
 
             Err(error_msg) => {

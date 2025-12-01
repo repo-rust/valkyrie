@@ -1,15 +1,20 @@
 #![allow(dead_code)]
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use tokio::net::TcpListener;
 
 use crate::network::connection_handler::{build_tcp_listener, run_client_connection};
 use crate::startup_arguments::StartupArguments;
+use crate::storage::engine::StorageEngine;
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
-pub fn start_reuseport_tcp_handlers(arguments: &StartupArguments) -> anyhow::Result<()> {
+pub fn start_reuseport_tcp_handlers(
+    arguments: &StartupArguments,
+    storage_engine: Arc<StorageEngine>,
+) -> anyhow::Result<()> {
     tracing::info!(
         "Starting {} TCP handlers with SO_REUSEPORT",
         arguments.tcp_handlers
@@ -21,6 +26,7 @@ pub fn start_reuseport_tcp_handlers(arguments: &StartupArguments) -> anyhow::Res
         arguments.address,
         arguments.tcp_handlers,
         tcp_affinity_cores,
+        storage_engine,
     );
 
     for h in tcp_handlers {
@@ -33,6 +39,7 @@ fn start_tcp_handler_threads(
     address: SocketAddr,
     tcp_handlers_count: usize,
     core_affinity_range: std::ops::Range<usize>,
+    storage_engine: Arc<StorageEngine>,
 ) -> Vec<JoinHandle<()>> {
     //
     // Build one listener per tcp-handler. Each gets its own accept loop.
@@ -48,6 +55,7 @@ fn start_tcp_handler_threads(
 
     for (handler_id, single_listener) in listeners.into_iter().enumerate() {
         let core_affinity_range_copy = core_affinity_range.clone();
+        let storage_engine_copy = Arc::clone(&storage_engine);
 
         let tcp_handler = thread::Builder::new()
             .name(format!("tcp-handler-{handler_id}"))
@@ -69,7 +77,10 @@ fn start_tcp_handler_threads(
                                 match listener.accept().await {
                                     Ok((stream, _)) => {
                                         // Each shard owns its accepted connections; no cross-shard handoff.
-                                        tokio::spawn(run_client_connection(stream));
+                                        tokio::spawn(run_client_connection(
+                                            stream,
+                                            Arc::clone(&storage_engine_copy),
+                                        ));
                                     }
                                     Err(error) => {
                                         tracing::error!("TCP accept failed with: {}", error);

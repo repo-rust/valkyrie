@@ -2,6 +2,7 @@ use crate::protocol::redis_serialization_protocol::RedisType;
 
 use anyhow::Result;
 
+#[derive(Debug)]
 pub enum RedisCommand {
     Ping(Option<String>),
     Echo(String), //https://redis.io/docs/latest/commands/echo/

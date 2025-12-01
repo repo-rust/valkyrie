@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::net::TcpStream as StdTcpStream;
+use std::sync::Arc;
 use std::thread::{self};
 
 use tokio::net::TcpStream;
@@ -8,13 +9,17 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 use crate::network::connection_handler::{build_tcp_listener, run_client_connection};
 use crate::startup_arguments::StartupArguments;
+use crate::storage::engine::StorageEngine;
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
-pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> anyhow::Result<()> {
+pub fn start_dispatcher_tcp_handlers(
+    arguments: &StartupArguments,
+    storage_engine: Arc<StorageEngine>,
+) -> anyhow::Result<()> {
     let tcp_affinity_cores = arguments.shards..arguments.shards + arguments.tcp_handlers;
 
     let tcp_handler_channels =
-        start_tcp_handler_threads(arguments.tcp_handlers, tcp_affinity_cores);
+        start_tcp_handler_threads(arguments.tcp_handlers, tcp_affinity_cores, storage_engine);
 
     let maybe_listener = build_tcp_listener(arguments.address);
 
@@ -59,6 +64,7 @@ pub fn start_dispatcher_tcp_handlers(arguments: &StartupArguments) -> anyhow::Re
 fn start_tcp_handler_threads(
     tcp_handlers_count: usize,
     core_affinity_range: std::ops::Range<usize>,
+    storage_engine: Arc<StorageEngine>,
 ) -> Vec<UnboundedSender<StdTcpStream>> {
     let mut tcp_handlers = Vec::with_capacity(tcp_handlers_count);
 
@@ -66,6 +72,8 @@ fn start_tcp_handler_threads(
         let core_affinity_range_copy = core_affinity_range.clone();
 
         let (stream_sender, mut stream_receiver) = unbounded_channel::<StdTcpStream>();
+
+        let storage_engine_copy = Arc::clone(&storage_engine);
 
         let _ = thread::Builder::new()
             .name(format!("tcp-handler-{handler_id}"))
@@ -85,7 +93,10 @@ fn start_tcp_handler_threads(
                         while let Some(std_stream) = stream_receiver.recv().await {
                             match TcpStream::from_std(std_stream) {
                                 Ok(stream) => {
-                                    tokio::spawn(run_client_connection(stream));
+                                    tokio::spawn(run_client_connection(
+                                        stream,
+                                        Arc::clone(&storage_engine_copy),
+                                    ));
                                 }
                                 Err(error) => {
                                     tracing::error!(
