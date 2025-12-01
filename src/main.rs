@@ -34,7 +34,7 @@ fn main() -> anyhow::Result<()> {
         start_reuseport_tcp_handlers(&arguments, storage)?;
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         use crate::network::dispatcher::start_dispatcher_tcp_handlers;
         start_dispatcher_tcp_handlers(&arguments, storage)?;

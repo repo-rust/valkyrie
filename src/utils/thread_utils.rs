@@ -28,3 +28,8 @@ pub fn pin_current_thread_to_cpu(id: usize, core_affinity_range: std::ops::Range
 pub fn pin_current_thread_to_cpu(_id: usize, _core_affinity_range: std::ops::Range<usize>) {
     // No-op for Windows platforms
 }
+
+#[cfg(target_os = "macos")]
+pub fn pin_current_thread_to_cpu(_id: usize, _core_affinity_range: std::ops::Range<usize>) {
+    // No-op for Macos platforms
+}
