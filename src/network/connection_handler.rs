@@ -128,9 +128,17 @@ async fn handle_tcp_connection_from_client(
                     .write_resp_bytes(&mut stream)
                     .await?;
             }
-            Ok(RedisCommand::Set { key, value }) => {
+            Ok(RedisCommand::Set {
+                key,
+                value,
+                expiration_in_ms,
+            }) => {
                 let command_response = storage_engine
-                    .execute(StorageRequest::Set { key, value })
+                    .execute(StorageRequest::Set {
+                        key,
+                        value,
+                        expiration_in_ms,
+                    })
                     .await?;
 
                 if let StorageResponse::Success = command_response {
@@ -170,10 +178,10 @@ async fn handle_tcp_connection_from_client(
                 }
             }
 
-            Err(error_msg) => {
-                tracing::warn!("Unsupported command received: {}", error_msg);
+            Err(error) => {
+                tracing::warn!("Unsupported command received: {error:?}");
 
-                RedisType::SimpleError(error_msg)
+                RedisType::SimpleError(error.to_string())
                     .write_resp_bytes(&mut stream)
                     .await?
             }

@@ -21,10 +21,6 @@ fn main() -> anyhow::Result<()> {
         .with_target(false)
         .init();
 
-    for i in 0..10 {
-        tracing::debug!("i = {i}");
-    }
-
     let arguments = StartupArguments::parse_args();
 
     tracing::info!("StartupArguments: {arguments}");

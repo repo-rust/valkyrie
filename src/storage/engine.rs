@@ -31,8 +31,14 @@ enum StorageCommandEnvelope {
 
 #[derive(Debug)]
 pub enum StorageRequest {
-    Get { key: String },
-    Set { key: String, value: String },
+    Get {
+        key: String,
+    },
+    Set {
+        key: String,
+        value: String,
+        expiration_in_ms: u64,
+    },
 }
 
 #[derive(Debug)]
@@ -91,8 +97,12 @@ impl StorageEngine {
                                         Self::send_reply(reply_channel, response_value);
 
                                     }
-                                    StorageRequest::Set { key, value } => {
+                                    StorageRequest::Set { key, value, expiration_in_ms } => {
                                         local_map.insert(key, value);
+
+                                        if expiration_in_ms > 0 {
+                                            tracing::debug!("expiration_in_ms = {expiration_in_ms}");
+                                        }
 
                                         Self::send_reply(reply_channel,  StorageResponse::Success);
                                     }
@@ -171,9 +181,11 @@ impl StorageEngine {
     fn find_shard_for_request(&self, storage_request: &StorageRequest) -> &StorageShard {
         let shard_idx = match storage_request {
             StorageRequest::Get { key } => self.hash_string(key) % self.storage_shards.len(),
-            StorageRequest::Set { key, value: _ } => {
-                self.hash_string(key) % self.storage_shards.len()
-            }
+            StorageRequest::Set {
+                key,
+                value: _,
+                expiration_in_ms: _,
+            } => self.hash_string(key) % self.storage_shards.len(),
         };
 
         &self.storage_shards[shard_idx]
