@@ -5,6 +5,8 @@ use anyhow::Result;
 pub enum RedisCommand {
     Ping(Option<String>),
     Echo(String), //https://redis.io/docs/latest/commands/echo/
+    Set { key: String, value: String },
+    Get { key: String },
     Command(),
 }
 
@@ -24,11 +26,15 @@ impl RedisCommand {
                             parse_command()
                         } else if command_name.to_uppercase() == "ECHO" {
                             parse_echo(elements)
+                        } else if command_name.to_uppercase() == "SET" {
+                            parse_set(elements)
+                        } else if command_name.to_uppercase() == "GET" {
+                            parse_get(elements)
                         } else {
-                            return Err(format!(
+                            Err(format!(
                                 "Command type is not defined or unknown {}",
                                 command_name
-                            ));
+                            ))
                         }
                     }
                     _ => Err("RedisArray 0 element is not a BulkString".into()),
@@ -69,5 +75,36 @@ fn parse_echo(elements: &[RedisType]) -> Result<RedisCommand, String> {
         Ok(RedisCommand::Echo(arg.clone()))
     } else {
         Err("ECHO argument is not a BulkString".into())
+    }
+}
+
+fn parse_set(elements: &[RedisType]) -> Result<RedisCommand, String> {
+    if elements.len() < 3 {
+        return Err("No enough arguments for SET command".into());
+    }
+
+    if let RedisType::BulkString(key) = &elements[1]
+        && let RedisType::BulkString(value) = &elements[2]
+    {
+        Ok(RedisCommand::Set {
+            key: key.to_owned(),
+            value: value.to_owned(),
+        })
+    } else {
+        Err("SET argument is not a BulkString".into())
+    }
+}
+
+fn parse_get(elements: &[RedisType]) -> Result<RedisCommand, String> {
+    if elements.len() < 2 {
+        return Err("No enough arguments for GET command".into());
+    }
+
+    if let RedisType::BulkString(key) = &elements[1] {
+        Ok(RedisCommand::Get {
+            key: key.to_owned(),
+        })
+    } else {
+        Err("GET argument is not a BulkString".into())
     }
 }

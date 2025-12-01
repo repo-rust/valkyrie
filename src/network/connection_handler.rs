@@ -123,6 +123,23 @@ async fn handle_tcp_connection_from_client(mut stream: TcpStream) -> anyhow::Res
                     .write_resp_bytes(&mut stream)
                     .await?;
             }
+            Ok(RedisCommand::Set { key, value }) => {
+                tracing::info!("SET {key} => {value}");
+
+                // Bulk string reply: the given string.
+                RedisType::SimpleString("OK".to_owned())
+                    .write_resp_bytes(&mut stream)
+                    .await?;
+            }
+
+            Ok(RedisCommand::Get { key }) => {
+                tracing::info!("GET {key}");
+
+                RedisType::BulkString("<not-implemented>".to_owned())
+                    .write_resp_bytes(&mut stream)
+                    .await?;
+            }
+
             Err(error_msg) => {
                 tracing::warn!("Unsupported command received: {}", error_msg);
 
