@@ -3,9 +3,14 @@ name: Commit Stage
 
 on:
   push:
-    branches: [ "master" ]
+    branches:
+      - master
+      - NO-REF*
+      - feature/*
+      - bugfix/*
   pull_request:
-    branches: [ "master" ]
+    branches:
+      - master
 
 env:
   CARGO_TERM_COLOR: always
