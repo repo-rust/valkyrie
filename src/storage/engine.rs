@@ -1,12 +1,16 @@
 use std::{
+    cell::RefCell,
     collections::HashMap,
     hash::DefaultHasher,
+    rc::Rc,
     thread::{self},
+    time::Duration,
 };
 
 use std::hash::{Hash, Hasher};
 
-use tokio::sync::oneshot;
+use tokio::time::sleep;
+use tokio::{sync::oneshot, task::LocalSet};
 
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
@@ -15,7 +19,7 @@ pub struct StorageEngine {
 }
 
 struct StorageShard {
-    commands_channel: crossbeam_channel::Sender<StorageCommandEnvelope>,
+    commands_channel: tokio::sync::mpsc::UnboundedSender<StorageCommandEnvelope>,
 }
 
 #[derive(Debug)]
@@ -56,8 +60,8 @@ impl StorageEngine {
         let mut storage_threads = Vec::with_capacity(shards);
 
         for shard_id in 0..shards {
-            let (queue_sender, queue_receiver) =
-                crossbeam_channel::unbounded::<StorageCommandEnvelope>();
+            let (sender, receiver) =
+                tokio::sync::mpsc::unbounded_channel::<StorageCommandEnvelope>();
 
             let core_affinity_range_copy = core_affinity_range.clone();
 
@@ -66,63 +70,88 @@ impl StorageEngine {
                 .spawn(move || {
                     pin_current_thread_to_cpu(shard_id, core_affinity_range_copy);
 
+                    let local = LocalSet::new();
+
                     let rt = tokio::runtime::Builder::new_current_thread()
                         .enable_io()
                         .enable_time()
                         .build()
                         .expect("Failed to create tokio runtime");
 
-                    rt.block_on(async move {
-                        let mut local_map: HashMap<String, String> = HashMap::new();
-
-                        tracing::debug!("Started");
-
-                        for storage_command in queue_receiver.iter() {
-                            if let StorageCommandEnvelope::Request {
-                                request,
-                                reply_channel,
-                            } = storage_command
-                            {
-                                tracing::debug!("Engine handling storage request {:?}", request);
-
-                                match request {
-                                    StorageRequest::Get { key } => {
-                                        let response_value = match local_map.get(&key) {
-                                            Some(value) => StorageResponse::KeyValue {
-                                                value: value.to_string(),
-                                            },
-                                            None => StorageResponse::Nill,
-                                        };
-
-                                        Self::send_reply(reply_channel, response_value);
-
-                                    }
-                                    StorageRequest::Set { key, value, expiration_in_ms } => {
-                                        local_map.insert(key, value);
-
-                                        if expiration_in_ms > 0 {
-                                            tracing::debug!("expiration_in_ms = {expiration_in_ms}");
-                                        }
-
-                                        Self::send_reply(reply_channel,  StorageResponse::Success);
-                                    }
-                                }
-                            }
-                            else {
-                                unreachable!("Incorrect 'StorageCommandEnvelope' type received expected 'Request' but found 'Response'")
-                            }
-                        }
-                    });
+                    rt.block_on(local.run_until(async move {
+                        Self::shard_loop(receiver).await;
+                    }));
                 })
                 .expect("Can't spawn storage-shard thread");
 
             storage_threads.push(StorageShard {
-                commands_channel: queue_sender,
+                commands_channel: sender,
             });
         }
 
         Self {
             storage_shards: storage_threads,
+        }
+    }
+
+    async fn shard_loop(
+        mut queue_receiver: tokio::sync::mpsc::UnboundedReceiver<StorageCommandEnvelope>,
+    ) {
+        let local_map: Rc<RefCell<HashMap<String, String>>> = Rc::new(RefCell::new(HashMap::new()));
+
+        tracing::debug!("Started");
+
+        while let Some(storage_command) = queue_receiver.recv().await {
+            if let StorageCommandEnvelope::Request {
+                request,
+                reply_channel,
+            } = storage_command
+            {
+                tracing::debug!("Engine handling storage request {:?}", request);
+
+                match request {
+                    StorageRequest::Get { key } => {
+                        let response_value = {
+                            match local_map.borrow().get(&key) {
+                                Some(value) => StorageResponse::KeyValue {
+                                    value: value.clone(),
+                                },
+                                None => StorageResponse::Nill,
+                            }
+                        };
+
+                        Self::send_reply(reply_channel, response_value);
+                    }
+                    StorageRequest::Set {
+                        key,
+                        value,
+                        expiration_in_ms,
+                    } => {
+                        {
+                            // short-lived mutable borrow; do not await while borrowed
+                            local_map.borrow_mut().insert(key.clone(), value);
+                        }
+
+                        if expiration_in_ms > 0 {
+                            // Delete expired key after 'expiration_in_ms' milliseconds delay
+                            let key_for_exp = key.clone();
+                            let map_for_exp = Rc::clone(&local_map);
+
+                            tokio::task::spawn_local(async move {
+                                sleep(Duration::from_millis(expiration_in_ms)).await;
+                                map_for_exp.borrow_mut().remove(&key_for_exp);
+                                tracing::debug!("Key {key_for_exp} expired and was deleted.");
+                            });
+                        }
+
+                        Self::send_reply(reply_channel, StorageResponse::Success);
+                    }
+                }
+            } else {
+                unreachable!(
+                    "Incorrect 'StorageCommandEnvelope' type received expected 'Request' but found 'Response'"
+                )
+            }
         }
     }
 
@@ -152,7 +181,8 @@ impl StorageEngine {
             .send(StorageCommandEnvelope::Request {
                 request: storage_request,
                 reply_channel: sender,
-            })?;
+            })
+            .map_err(|_| anyhow::anyhow!("failed to send to storage shard: channel closed"))?;
 
         let response_envelope = receiver.await?;
 
