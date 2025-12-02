@@ -9,8 +9,8 @@ use std::{
 
 use std::hash::{Hash, Hasher};
 
-use tokio::time::sleep;
 use tokio::{sync::oneshot, task::LocalSet};
+use tokio::{task::JoinHandle, time::sleep};
 
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
 
@@ -97,7 +97,10 @@ impl StorageEngine {
     async fn shard_loop(
         mut queue_receiver: tokio::sync::mpsc::UnboundedReceiver<StorageCommandEnvelope>,
     ) {
-        let local_map: Rc<RefCell<HashMap<String, String>>> = Rc::new(RefCell::new(HashMap::new()));
+        let stored_data: Rc<RefCell<HashMap<String, String>>> =
+            Rc::new(RefCell::new(HashMap::new()));
+        let delayed_tasks: Rc<RefCell<HashMap<String, JoinHandle<()>>>> =
+            Rc::new(RefCell::new(HashMap::new()));
 
         tracing::debug!("Started");
 
@@ -112,7 +115,7 @@ impl StorageEngine {
                 match request {
                     StorageRequest::Get { key } => {
                         let response_value = {
-                            match local_map.borrow().get(&key) {
+                            match stored_data.borrow().get(&key) {
                                 Some(value) => StorageResponse::KeyValue {
                                     value: value.clone(),
                                 },
@@ -129,19 +132,32 @@ impl StorageEngine {
                     } => {
                         {
                             // short-lived mutable borrow; do not await while borrowed
-                            local_map.borrow_mut().insert(key.clone(), value);
+                            stored_data.borrow_mut().insert(key.clone(), value);
+                            if let Some(prev_exp_handle) = delayed_tasks.borrow_mut().remove(&key) {
+                                // abort any previously created expiration tasks if any
+                                tracing::debug!("Previous expiration aborted");
+                                prev_exp_handle.abort();
+                            }
                         }
 
                         if expiration_in_ms > 0 {
                             // Delete expired key after 'expiration_in_ms' milliseconds delay
-                            let key_for_exp = key.clone();
-                            let map_for_exp = Rc::clone(&local_map);
+                            let key_copy = key.clone();
 
-                            tokio::task::spawn_local(async move {
+                            let local_map_copy = Rc::clone(&stored_data);
+                            let delayed_tasks_copy = Rc::clone(&delayed_tasks);
+
+                            let exp_handler = tokio::task::spawn_local(async move {
                                 sleep(Duration::from_millis(expiration_in_ms)).await;
-                                map_for_exp.borrow_mut().remove(&key_for_exp);
-                                tracing::debug!("Key {key_for_exp} expired and was deleted.");
+                                local_map_copy.borrow_mut().remove(&key_copy);
+                                tracing::debug!("Key {key_copy} expired and was deleted.");
                             });
+
+                            let key_for_exp = key.clone();
+
+                            delayed_tasks_copy
+                                .borrow_mut()
+                                .insert(key_for_exp, exp_handler);
                         }
 
                         Self::send_reply(reply_channel, StorageResponse::Success);
