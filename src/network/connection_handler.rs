@@ -72,10 +72,9 @@ async fn handle_tcp_connection_from_client(
     mut stream: TcpStream,
     storage_engine: Arc<StorageEngine>,
 ) -> anyhow::Result<()> {
-    //
-    // 10 KB should be enough to parse request bytes into RedisType
-    //
-    let mut buf = BytesMut::with_capacity(10 * 1024);
+    const INITIAL_READ_CAPACITY: usize = 1024; // Initial buffer with 1 KB. Grows on demand. RESP frames are typically small.
+    const MAX_REQUEST_SIZE: usize = 64 * 1024; // fail-safe limit to avoid unbounded memory usage
+    let mut buf = BytesMut::with_capacity(INITIAL_READ_CAPACITY);
 
     'outer: loop {
         let mut read_it_idx = 0;
@@ -85,6 +84,14 @@ async fn handle_tcp_connection_from_client(
 
         while type_opt.is_none() {
             received_bytes_cnt += stream.read_buf(&mut buf).await?;
+
+            // Guardrail: avoid unbounded memory growth on malformed or huge requests.
+            if buf.len() > MAX_REQUEST_SIZE {
+                RedisType::SimpleError("Request too large".to_string())
+                    .write_resp_bytes(&mut stream)
+                    .await?;
+                break 'outer;
+            }
 
             if read_it_idx == 0 && received_bytes_cnt == 0 {
                 // connection closed by client
