@@ -106,15 +106,20 @@ impl RedisType {
     }
 }
 
-pub fn try_parse_type(buf: &BytesMut) -> Option<RedisType> {
-    let buf_content: String = String::from_utf8_lossy(&buf[..]).into_owned();
-    let buf_content = buf_content.replace("\r\n", "\\r\\n");
-
-    tracing::debug!("Parsing raw content =======> {}", buf_content);
-
+pub fn try_parse_frame(buf: &BytesMut) -> Option<(RedisType, usize)> {
+    if buf.is_empty() {
+        return None;
+    }
+    // Parse from the current buffer start and return how many bytes were consumed.
     let mut fwd = ForwardBuf { buf, offset: 0 };
+    let ty = try_parse_type_forward(&mut fwd)?;
+    Some((ty, fwd.offset))
+}
 
-    try_parse_type_forward(&mut fwd)
+/// API for unit tests ONLY.
+#[allow(dead_code)]
+fn try_parse_type(buf: &BytesMut) -> Option<RedisType> {
+    try_parse_frame(buf).map(|(t, _consumed)| t)
 }
 
 fn try_parse_type_forward(buf: &mut ForwardBuf) -> Option<RedisType> {

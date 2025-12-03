@@ -8,7 +8,7 @@ use tokio::net::TcpStream;
 use crate::protocol::redis_serialization_protocol::RedisType;
 use crate::storage::engine::{StorageEngine, StorageRequest, StorageResponse};
 use crate::{
-    command::factory::RedisCommand, protocol::redis_serialization_protocol::try_parse_type,
+    command::factory::RedisCommand, protocol::redis_serialization_protocol::try_parse_frame,
 };
 
 use std::net::TcpListener as StdTcpListener;
@@ -68,22 +68,27 @@ pub async fn run_client_connection(stream: TcpStream, storage_engine: Arc<Storag
     }
 }
 
+const INITIAL_READ_CAPACITY: usize = 1024; // Initial buffer with 1 KB. Grows on demand. RESP frames are typically small.
+const MAX_REQUEST_SIZE: usize = 64 * 1024; // fail-safe limit to avoid unbounded memory usage
+
 async fn handle_tcp_connection_from_client(
     mut stream: TcpStream,
     storage_engine: Arc<StorageEngine>,
 ) -> anyhow::Result<()> {
-    const INITIAL_READ_CAPACITY: usize = 1024; // Initial buffer with 1 KB. Grows on demand. RESP frames are typically small.
-    const MAX_REQUEST_SIZE: usize = 64 * 1024; // fail-safe limit to avoid unbounded memory usage
     let mut buf = BytesMut::with_capacity(INITIAL_READ_CAPACITY);
 
     'outer: loop {
-        let mut read_it_idx = 0;
-        let mut received_bytes_cnt = 0;
+        // Incremental parsing: parse a single complete frame (if available).
+        // Do not reparse bytes already consumed; keep leftovers for the next iteration.
+        let received_redis_type = loop {
+            if let Some((parsed_redis_type, consumed_bytes_cnt)) = try_parse_frame(&buf) {
+                // Drop the consumed prefix; keep any pipelined bytes in the buffer.
+                let _ = buf.split_to(consumed_bytes_cnt);
+                break parsed_redis_type;
+            }
 
-        let mut type_opt = None;
-
-        while type_opt.is_none() {
-            received_bytes_cnt += stream.read_buf(&mut buf).await?;
+            // Need more bytes to complete a frame.
+            let n = stream.read_buf(&mut buf).await?;
 
             // Guardrail: avoid unbounded memory growth on malformed or huge requests.
             if buf.len() > MAX_REQUEST_SIZE {
@@ -93,16 +98,11 @@ async fn handle_tcp_connection_from_client(
                 break 'outer;
             }
 
-            if read_it_idx == 0 && received_bytes_cnt == 0 {
-                // connection closed by client
+            if n == 0 {
+                // connection closed by the client
                 break 'outer;
             }
-
-            type_opt = try_parse_type(&buf);
-            read_it_idx += 1;
-        }
-
-        let received_redis_type = type_opt.unwrap();
+        };
 
         let maybe_redis_command = RedisCommand::from_redis_type(&received_redis_type);
 
@@ -193,9 +193,7 @@ async fn handle_tcp_connection_from_client(
                     .await?
             }
         }
-        buf.clear();
     }
 
-    // Flush is implicit for TCP; close on drop.
     Ok(())
 }

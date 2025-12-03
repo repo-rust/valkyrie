@@ -30,4 +30,8 @@ jobs:
       run: cargo build --verbose
 
     - name: Run unit tests
-      run: cargo test --verbose
+      run: cargo test --bin valkyrie --verbose
+
+    # Right now we have only one binary so integration tests will also execute unit tests, but it's ok for now
+    - name: Run integration tests
+      run: cargo test --tests --verbose
