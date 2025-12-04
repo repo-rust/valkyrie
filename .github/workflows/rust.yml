@@ -29,9 +29,14 @@ jobs:
     - name: Build
       run: cargo build --verbose
 
+    - name: Install cargo-nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
+
     - name: Run unit tests
-      run: cargo test --bin valkyrie --verbose
+      run: cargo nextest run --bin valkyrie --verbose
 
     # Right now we have only one binary so integration tests will also execute unit tests, but it's ok for now
     - name: Run integration tests
-      run: cargo test --tests --verbose
+      run: cargo nextest run --tests --verbose
