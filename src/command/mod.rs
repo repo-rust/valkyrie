@@ -19,6 +19,8 @@ pub enum RedisCommand {
 
 impl RedisCommand {
     pub fn from_redis_type(redis_type: &RedisType) -> Result<RedisCommand, anyhow::Error> {
+        tracing::debug!("received {:?}", redis_type);
+
         match redis_type {
             RedisType::Array(elements) => {
                 if elements.is_empty() {

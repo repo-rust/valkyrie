@@ -21,6 +21,22 @@ pub trait ToRespBytes {
     fn to_resp_bytes(&self) -> Vec<u8>;
 }
 
+impl From<&str> for RedisType {
+    fn from(value: &str) -> Self {
+        let mut forward_buf = ForwardBuf {
+            buf: &BytesMut::from(value.as_bytes()),
+            offset: 0,
+        };
+        try_parse_type_forward(&mut forward_buf).expect("")
+    }
+}
+
+impl From<String> for RedisType {
+    fn from(value: String) -> Self {
+        value.as_str().into()
+    }
+}
+
 const RESP_TERMINATOR: &[u8] = b"\r\n";
 
 impl ToRespBytes for RedisType {
@@ -628,5 +644,58 @@ mod tests {
     fn encode_invalid_type_as_error() {
         let v = RedisType::InvalidType("Invalid integer 12a".to_owned()).to_resp_bytes();
         assert_eq!(b"-Invalid integer 12a\r\n", v.as_slice());
+    }
+
+    #[test]
+    fn froms_str_conversation() {
+        // Simple String: +<string>\r\n
+        assert_eq!(
+            RedisType::SimpleString("Hello".to_string()),
+            "+Hello\r\n".into()
+        );
+
+        // Integers: :[<+|->]<value>\r\n
+        assert_eq!(RedisType::Integer(123), ":+123\r\n".into());
+        assert_eq!(RedisType::Integer(-777), ":-777\r\n".into());
+
+        // Bulk String: $<length>\r\n<data>\r\n
+        assert_eq!(
+            RedisType::BulkString("bulk".to_string()),
+            "$4\r\nbulk\r\n".into()
+        );
+        assert_eq!(RedisType::BulkString("".to_string()), "$0\r\n\r\n".into());
+
+        // Null Bulk String: $-1\r\n
+        assert_eq!(RedisType::NullBulkString, "$-1\r\n".into());
+
+        // Arrays: *<number-of-elements>\r\n<element-1>...<element-n>
+        assert_eq!(
+            RedisType::Array(vec![
+                RedisType::SimpleString("OK".to_owned()),
+                RedisType::SimpleString("Ping".to_owned()),
+            ]),
+            "*2\r\n+OK\r\n+Ping\r\n".into()
+        );
+
+        // Arrays with mixed elements
+        assert_eq!(
+            RedisType::Array(vec![
+                RedisType::BulkString("hello".to_owned()),
+                RedisType::Integer(42),
+            ]),
+            "*2\r\n$5\r\nhello\r\n:42\r\n".into()
+        );
+
+        // Null Array: *-1\r\n
+        assert_eq!(RedisType::NullArray, "*-1\r\n".into());
+
+        // Nested array
+        assert_eq!(
+            RedisType::Array(vec![
+                RedisType::Array(vec![RedisType::SimpleString("A".to_owned())]),
+                RedisType::BulkString("abc".to_owned()),
+            ]),
+            "*2\r\n*1\r\n+A\r\n$3\r\nabc\r\n".into()
+        );
     }
 }

@@ -1,24 +1,32 @@
 mod common;
 
-use std::io::{BufRead, BufReader, Write};
+use crate::common::ValkyrieClientTest;
 
+//
+// https://redis.io/docs/latest/commands/ping/
+//
 #[test]
-fn ping_no_arg_returns_pong() {
-    // Start server with minimal resources
+fn ping_no_arguments() {
     let server = common::ValkyrieServerTest::start(2, 3).expect("start server");
 
-    // Connect to server
-    let mut stream = server.connect().expect("connect to server");
-    let mut reader = BufReader::new(stream.try_clone().expect("clone stream for reading"));
+    let mut client_test = ValkyrieClientTest::new(server);
 
-    // Send RESP array: *1\r\n$4\r\nPING\r\n
-    stream
-        .write_all(b"*1\r\n$4\r\nPING\r\n")
-        .expect("write PING");
-    let _ = stream.flush();
+    client_test.assert_command_response2("*1\r\n$4\r\nPING\r\n", "+PONG\r\n");
+}
 
-    // Expect: +PONG\r\n
-    let mut line = String::new();
-    reader.read_line(&mut line).expect("read PING response");
-    assert_eq!(line, "+PONG\r\n", "Unexpected PING response");
+#[test]
+fn ping_with_arguments() {
+    let server = common::ValkyrieServerTest::start(2, 3).expect("start server");
+
+    let mut client_test = ValkyrieClientTest::new(server);
+
+    client_test
+        .send("*2\r\n$4\r\nPING\r\n$5\r\nWorld\r\n".as_bytes())
+        .expect("write ECHO request");
+
+    let payload = client_test
+        .read_bulk_or_null()
+        .expect("expected bulk string");
+
+    assert_eq!(payload, "World", "Unexpected ECHO payload");
 }

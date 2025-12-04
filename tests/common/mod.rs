@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command as StdCommand, Stdio};
 use std::thread;
@@ -69,5 +71,76 @@ impl Drop for ValkyrieServerTest {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+/// Test client helper that keeps the server process alive and provides simple RESP helpers.
+pub struct ValkyrieClientTest {
+    // Keep the server alive for the lifetime of the client to avoid dropping the child process.
+    _server: ValkyrieServerTest,
+    stream: TcpStream,
+    reader: BufReader<TcpStream>,
+}
+
+impl ValkyrieClientTest {
+    pub fn new(server: ValkyrieServerTest) -> Self {
+        // Connect to server
+        let stream = server.connect().expect("connect to server");
+        let reader = BufReader::new(stream.try_clone().expect("clone stream for reading"));
+
+        Self {
+            _server: server,
+            stream,
+            reader,
+        }
+    }
+
+    /// Low-level: send raw request bytes and flush.
+    pub fn send(&mut self, request: &[u8]) -> std::io::Result<()> {
+        self.stream.write_all(request)?;
+        self.stream.flush()
+    }
+
+    /// Read a single line (terminated by CRLF) and return it.
+    pub fn read_line(&mut self) -> std::io::Result<String> {
+        let mut line = String::new();
+        self.reader.read_line(&mut line)?;
+        Ok(line)
+    }
+
+    pub fn assert_command_response2(&mut self, actual_request: &str, expected_response: &str) {
+        self.send(actual_request.as_bytes()).expect("write request");
+        let line = self.read_line().expect("read response");
+        assert_eq!(line, expected_response, "Unexpected response");
+    }
+
+    /// Read a RESP Bulk String or Null Bulk String from the reader.
+    /// - Returns Some(String) when a Bulk String is received
+    /// - Returns None when a Null Bulk String ($-1) is received
+    pub fn read_bulk_or_null(&mut self) -> Option<String> {
+        // Read header line: either "$<len>\r\n" or "$-1\r\n"
+        let mut header = String::new();
+        self.reader.read_line(&mut header).expect("read header");
+        if header == "$-1\r\n" {
+            return None;
+        }
+        assert!(
+            header.starts_with('$'),
+            "Expected bulk string header, got: {header:?}"
+        );
+        let len: usize = header[1..].trim().parse().expect("parse bulk length");
+
+        // Read payload
+        let mut payload = vec![0u8; len];
+        self.reader.read_exact(&mut payload).expect("read payload");
+
+        // Read trailing \r\n
+        let mut terminator = [0u8; 2];
+        self.reader
+            .read_exact(&mut terminator)
+            .expect("read bulk terminator");
+        assert_eq!(&terminator, b"\r\n", "Bulk string not properly terminated");
+
+        Some(String::from_utf8(payload).expect("payload utf8"))
     }
 }
