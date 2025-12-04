@@ -63,8 +63,8 @@ impl ToRespBytes for RedisType {
                 v.push(b'*');
                 v.extend_from_slice(len.as_bytes());
                 v.extend_from_slice(RESP_TERMINATOR);
-                for e in elements {
-                    v.extend_from_slice(&e.to_resp_bytes());
+                for single_element in elements {
+                    v.extend_from_slice(&single_element.to_resp_bytes());
                 }
                 v
             }
@@ -88,7 +88,7 @@ impl ToRespBytes for RedisType {
             //  _\r\n
             // https://redis.io/docs/latest/develop/reference/protocol-spec/#nulls
             RedisType::Null => {
-                let mut v = Vec::with_capacity(1);
+                let mut v = Vec::with_capacity(1 + 2);
                 v.push(b'_');
                 v.extend_from_slice(RESP_TERMINATOR);
                 v
@@ -112,14 +112,14 @@ pub fn try_parse_frame(buf: &BytesMut) -> Option<(RedisType, usize)> {
     }
     // Parse from the current buffer start and return how many bytes were consumed.
     let mut fwd = ForwardBuf { buf, offset: 0 };
-    let ty = try_parse_type_forward(&mut fwd)?;
-    Some((ty, fwd.offset))
+    let parsed_redis_type = try_parse_type_forward(&mut fwd)?;
+    Some((parsed_redis_type, fwd.offset))
 }
 
-/// API for unit tests ONLY.
+/// Used inside unit tests ONLY.
 #[allow(dead_code)]
 fn try_parse_type(buf: &BytesMut) -> Option<RedisType> {
-    try_parse_frame(buf).map(|(t, _consumed)| t)
+    try_parse_frame(buf).map(|(parsed_redis_type, _)| parsed_redis_type)
 }
 
 fn try_parse_type_forward(buf: &mut ForwardBuf) -> Option<RedisType> {
