@@ -4,17 +4,31 @@ use anyhow::{Context, Result, anyhow};
 
 #[derive(Debug)]
 pub enum RedisCommand {
+    //https://redis.io/docs/latest/commands/ping/
     Ping(Option<String>),
-    Echo(String), //https://redis.io/docs/latest/commands/echo/
+
+    //https://redis.io/docs/latest/commands/echo/
+    Echo(String),
+
+    // https://redis.io/docs/latest/commands/set/
     Set {
         key: String,
         value: String,
         expiration_in_ms: u64,
     },
+    //https://redis.io/docs/latest/commands/get/
     Get {
         key: String,
     },
+
+    // https://redis.io/docs/latest/commands/command/
     Command(),
+
+    // https://redis.io/docs/latest/commands/rpush/
+    RPush {
+        key: String,
+        values: Vec<String>,
+    },
 }
 
 impl RedisCommand {
@@ -39,6 +53,8 @@ impl RedisCommand {
                             parse_set(elements)
                         } else if command_name.to_uppercase() == "GET" {
                             parse_get(elements)
+                        } else if command_name.to_uppercase() == "RPUSH" {
+                            parse_rpush(elements)
                         } else {
                             Err(anyhow!(
                                 "Command type is not defined or unknown {command_name}"
@@ -138,5 +154,32 @@ fn parse_get(elements: &[RedisType]) -> Result<RedisCommand, anyhow::Error> {
         })
     } else {
         Err(anyhow!("GET argument is not a BulkString"))
+    }
+}
+
+fn parse_rpush(elements: &[RedisType]) -> Result<RedisCommand, anyhow::Error> {
+    if elements.len() < 3 {
+        return Err(anyhow!("Not enough arguments for RPUSH command"));
+    }
+
+    if let RedisType::BulkString(key) = &elements[1] {
+        let mut values = Vec::new();
+
+        for element in &elements[2..] {
+            if let RedisType::BulkString(value) = element {
+                values.push(value.clone());
+            } else if let RedisType::Integer(value) = element {
+                values.push(value.to_string());
+            } else {
+                return Err(anyhow!("RPUSH argument is not BulkString or Integer"));
+            }
+        }
+
+        Ok(RedisCommand::RPush {
+            key: key.to_owned(),
+            values,
+        })
+    } else {
+        Err(anyhow!("RPUSH key is not BulkString"))
     }
 }

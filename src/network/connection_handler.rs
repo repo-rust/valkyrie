@@ -107,11 +107,6 @@ async fn handle_tcp_connection_from_client(
         match maybe_redis_command {
             Ok(RedisCommand::Ping(maybe_argument)) => {
                 if let Some(argument) = maybe_argument {
-                    // let response_bytes = format!("${}\r\n{}\r\n", argument.len(), argument);
-
-                    // Bulk string reply: the provided argument.
-                    // stream.write_all(response_bytes.as_bytes()).await?;
-
                     RedisType::BulkString(argument)
                         .write_resp_bytes(&mut stream)
                         .await?;
@@ -177,6 +172,31 @@ async fn handle_tcp_connection_from_client(
                     }
                     _ => {
                         RedisType::SimpleError("Error occurred during GET".to_string())
+                            .write_resp_bytes(&mut stream)
+                            .await?;
+                    }
+                }
+            }
+
+            Ok(RedisCommand::RPush { key, values }) => {
+                let command_response = storage_engine
+                    .execute(StorageRequest::ListRightPush { key, values })
+                    .await?;
+
+                match command_response {
+                    StorageResponse::ListLength(length) => {
+                        // Integer reply: the length of the list after the push operation.
+                        RedisType::Integer(length as i32)
+                            .write_resp_bytes(&mut stream)
+                            .await?;
+                    }
+                    StorageResponse::Failed(error_msg) => {
+                        RedisType::SimpleError(error_msg)
+                            .write_resp_bytes(&mut stream)
+                            .await?;
+                    }
+                    _ => {
+                        RedisType::SimpleError("Unknown error occurred during RPUSH".to_string())
                             .write_resp_bytes(&mut stream)
                             .await?;
                     }
