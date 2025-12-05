@@ -95,23 +95,51 @@ impl ValkyrieClientTest {
         }
     }
 
-    /// Low-level: send raw request bytes and flush.
-    pub fn send(&mut self, request: &[u8]) -> std::io::Result<()> {
-        self.stream.write_all(request)?;
-        self.stream.flush()
+    pub fn assert_command_response(&mut self, command: &str, expected_response: &str) {
+        self.stream
+            .write_all(command.as_bytes())
+            .expect("send command failed");
+        self.stream.flush().expect("flush stream failed");
+
+        let mut buf = vec![0u8; expected_response.len()];
+
+        if self.stream.read_exact(&mut buf).is_err() {
+            panic!(
+                "Failed to read full response '{}' from server!!!",
+                Self::sanitize(expected_response)
+            );
+        }
+
+        assert_eq!(
+            str::from_utf8(&buf).expect("failed to convert response to utf8 string"),
+            expected_response,
+            "Unexpected command response"
+        );
+    }
+
+    fn sanitize(value: &str) -> String {
+        value.replace("\r\n", "\\r\\n")
     }
 
     /// Read a single line (terminated by CRLF) and return it.
-    pub fn read_line(&mut self) -> std::io::Result<String> {
+    fn read_line(&mut self) -> std::io::Result<String> {
         let mut line = String::new();
         self.reader.read_line(&mut line)?;
         Ok(line)
     }
 
-    pub fn assert_command_response2(&mut self, actual_request: &str, expected_response: &str) {
-        self.send(actual_request.as_bytes()).expect("write request");
+    /// Low-level: send raw request bytes and flush.
+    pub fn send(&mut self, request: &[u8]) -> std::io::Result<()> {
+        self.stream.write_all(request)?;
+        self.stream.flush()
+    }
+    /// Read Simple String or return Null
+    pub fn read_simple_string_or_null(&mut self) -> Option<String> {
         let line = self.read_line().expect("read response");
-        assert_eq!(line, expected_response, "Unexpected response");
+        if line.is_empty() || line.chars().nth(0).unwrap() != '+' {
+            return None;
+        }
+        Some(line[1..line.len() - 2].to_string())
     }
 
     /// Read a RESP Bulk String or Null Bulk String from the reader.
