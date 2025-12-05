@@ -69,29 +69,33 @@ pub async fn run_client_connection(stream: TcpStream, storage_engine: Arc<Storag
 const INITIAL_READ_CAPACITY: usize = 1024; // Initial buffer with 1 KB. Grows on demand. RESP frames are typically small.
 const MAX_REQUEST_SIZE: usize = 64 * 1024; // fail-safe limit to avoid unbounded memory usage
 
+const DEFAULT_WRITE_CAPACITY: usize = 1024;
+
 async fn handle_tcp_connection_from_client(
     mut stream: TcpStream,
     storage_engine: Arc<StorageEngine>,
 ) -> anyhow::Result<()> {
-    let mut buf = BytesMut::with_capacity(INITIAL_READ_CAPACITY);
+    let mut input_buf = BytesMut::with_capacity(INITIAL_READ_CAPACITY);
+
+    let mut output_buf = BytesMut::with_capacity(DEFAULT_WRITE_CAPACITY);
 
     'outer: loop {
         // Incremental parsing: parse a single complete frame (if available).
         // Do not reparse bytes already consumed; keep leftovers for the next iteration.
         let received_redis_type = loop {
-            if let Some((parsed_redis_type, consumed_bytes_cnt)) = try_parse_frame(&buf) {
+            if let Some((parsed_redis_type, consumed_bytes_cnt)) = try_parse_frame(&input_buf) {
                 // Drop the consumed prefix; keep any pipelined bytes in the buffer.
-                let _ = buf.split_to(consumed_bytes_cnt);
+                let _ = input_buf.split_to(consumed_bytes_cnt);
                 break parsed_redis_type;
             }
 
             // Need more bytes to complete a frame.
-            let n = stream.read_buf(&mut buf).await?;
+            let n = stream.read_buf(&mut input_buf).await?;
 
             // Guardrail: avoid unbounded memory growth on malformed or huge requests.
-            if buf.len() > MAX_REQUEST_SIZE {
+            if input_buf.len() > MAX_REQUEST_SIZE {
                 RedisType::SimpleError("Request too large".to_string())
-                    .write_resp_bytes(&mut stream)
+                    .write_resp_to_stream(&mut output_buf, &mut stream)
                     .await?;
                 break 'outer;
             }
@@ -108,24 +112,24 @@ async fn handle_tcp_connection_from_client(
             Ok(RedisCommand::Ping(maybe_argument)) => {
                 if let Some(argument) = maybe_argument {
                     RedisType::BulkString(argument)
-                        .write_resp_bytes(&mut stream)
+                        .write_resp_to_stream(&mut output_buf, &mut stream)
                         .await?;
                 } else {
                     // Simple string reply: PONG when no argument is provided.
                     RedisType::SimpleString("PONG".to_string())
-                        .write_resp_bytes(&mut stream)
+                        .write_resp_to_stream(&mut output_buf, &mut stream)
                         .await?;
                 }
             }
             Ok(RedisCommand::Command()) => {
                 RedisType::Array(vec![])
-                    .write_resp_bytes(&mut stream)
+                    .write_resp_to_stream(&mut output_buf, &mut stream)
                     .await?;
             }
             Ok(RedisCommand::Echo(argument)) => {
                 // Bulk string reply: the given string.
                 RedisType::BulkString(argument)
-                    .write_resp_bytes(&mut stream)
+                    .write_resp_to_stream(&mut output_buf, &mut stream)
                     .await?;
             }
             Ok(RedisCommand::Set {
@@ -144,11 +148,11 @@ async fn handle_tcp_connection_from_client(
                 if let StorageResponse::Success = command_response {
                     // Simple string reply: OK: The key was set.
                     RedisType::SimpleString("OK".to_string())
-                        .write_resp_bytes(&mut stream)
+                        .write_resp_to_stream(&mut output_buf, &mut stream)
                         .await?;
                 } else {
                     RedisType::SimpleError("Error occurred during SET".to_string())
-                        .write_resp_bytes(&mut stream)
+                        .write_resp_to_stream(&mut output_buf, &mut stream)
                         .await?;
                 }
             }
@@ -161,18 +165,18 @@ async fn handle_tcp_connection_from_client(
                         // $-1\r\n
                         // https://redis.io/docs/latest/develop/reference/protocol-spec/#bulk-strings
                         RedisType::NullBulkString
-                            .write_resp_bytes(&mut stream)
+                            .write_resp_to_stream(&mut output_buf, &mut stream)
                             .await?;
                     }
                     StorageResponse::KeyValue { value } => {
                         // Bulk string reply: the value of the key.
                         RedisType::BulkString(value)
-                            .write_resp_bytes(&mut stream)
+                            .write_resp_to_stream(&mut output_buf, &mut stream)
                             .await?;
                     }
                     _ => {
                         RedisType::SimpleError("Error occurred during GET".to_string())
-                            .write_resp_bytes(&mut stream)
+                            .write_resp_to_stream(&mut output_buf, &mut stream)
                             .await?;
                     }
                 }
@@ -187,17 +191,17 @@ async fn handle_tcp_connection_from_client(
                     StorageResponse::ListLength(length) => {
                         // Integer reply: the length of the list after the push operation.
                         RedisType::Integer(length as i32)
-                            .write_resp_bytes(&mut stream)
+                            .write_resp_to_stream(&mut output_buf, &mut stream)
                             .await?;
                     }
                     StorageResponse::Failed(error_msg) => {
                         RedisType::SimpleError(error_msg)
-                            .write_resp_bytes(&mut stream)
+                            .write_resp_to_stream(&mut output_buf, &mut stream)
                             .await?;
                     }
                     _ => {
                         RedisType::SimpleError("Unknown error occurred during RPUSH".to_string())
-                            .write_resp_bytes(&mut stream)
+                            .write_resp_to_stream(&mut output_buf, &mut stream)
                             .await?;
                     }
                 }
@@ -207,11 +211,13 @@ async fn handle_tcp_connection_from_client(
                 tracing::warn!("Unsupported command received: {error:?}");
 
                 RedisType::SimpleError(error.to_string())
-                    .write_resp_bytes(&mut stream)
+                    .write_resp_to_stream(&mut output_buf, &mut stream)
                     .await?
             }
         }
     }
+
+    output_buf.clear();
 
     Ok(())
 }
