@@ -4,14 +4,14 @@ use tokio::net::TcpStream;
 
 use crate::protocol::redis_serialization_protocol::RedisType;
 
-use super::RedisCommandInstance;
+use super::RedisCommand;
 
 #[derive(Debug)]
 pub struct EchoCommand {
-    pub(crate) argument: String,
+    argument: String,
 }
 
-impl RedisCommandInstance for EchoCommand {
+impl RedisCommand for EchoCommand {
     fn parse(redis_type: &RedisType) -> Result<Self> {
         let elements = super::expect_cmd_array(redis_type)?;
 

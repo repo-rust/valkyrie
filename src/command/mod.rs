@@ -7,8 +7,9 @@ use crate::protocol::redis_serialization_protocol::RedisType;
 use crate::storage::StorageEngine;
 
 /// Command trait following the Open-Closed Principle.
-/// New commands can be added by implementing this trait
-pub trait RedisCommandInstance: Sized {
+/// New commands can be added by implementing this trait and registering
+/// a new dispatch inside `dispatch_and_execute`.
+pub trait RedisCommand: Sized {
     /// Parses the given RedisType into a concrete command instance.
     fn parse(redis_type: &RedisType) -> Result<Self>;
 
@@ -24,7 +25,7 @@ pub fn ensure_storage_engine(engine: Arc<StorageEngine>) {
     let _ = STORAGE_ENGINE.get_or_init(|| engine);
 }
 
-pub(crate) fn storage_engine() -> Result<Arc<StorageEngine>> {
+fn storage_engine() -> Result<Arc<StorageEngine>> {
     STORAGE_ENGINE
         .get()
         .cloned()
@@ -32,7 +33,7 @@ pub(crate) fn storage_engine() -> Result<Arc<StorageEngine>> {
 }
 
 // Helpers used by submodules
-pub(crate) fn expect_cmd_array(redis_type: &RedisType) -> Result<&[RedisType]> {
+fn expect_cmd_array(redis_type: &RedisType) -> Result<&[RedisType]> {
     if let RedisType::Array(elements) = redis_type {
         Ok(elements.as_slice())
     } else {
@@ -40,7 +41,7 @@ pub(crate) fn expect_cmd_array(redis_type: &RedisType) -> Result<&[RedisType]> {
     }
 }
 
-pub(crate) fn upper_first_bulk_string(redis_type: &RedisType) -> Option<String> {
+fn upper_first_bulk_string(redis_type: &RedisType) -> Option<String> {
     if let RedisType::Array(elements) = redis_type
         && let Some(RedisType::BulkString(cmd)) = elements.first()
     {
@@ -104,6 +105,6 @@ pub async fn dispatch_and_execute(
                 .await;
         }
         Some(cmd) => Err(anyhow!("Command type is not defined or unknown {cmd}")),
-        None => Err(anyhow!("Command type is not defined or unknown")),
+        None => Err(anyhow!("Incorrect command type format")),
     }
 }

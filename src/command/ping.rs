@@ -4,16 +4,16 @@ use tokio::net::TcpStream;
 
 use crate::protocol::redis_serialization_protocol::RedisType;
 
-use super::RedisCommandInstance;
+use super::RedisCommand;
 
 // Access parent helpers via `super::expect_cmd_array` and `super::upper_first_bulk_string`.
 
 #[derive(Debug)]
 pub struct PingCommand {
-    pub(crate) argument: Option<String>,
+    argument: Option<String>,
 }
 
-impl RedisCommandInstance for PingCommand {
+impl RedisCommand for PingCommand {
     fn parse(redis_type: &RedisType) -> Result<Self> {
         let elements = super::expect_cmd_array(redis_type)?;
 

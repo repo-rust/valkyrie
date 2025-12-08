@@ -5,16 +5,16 @@ use tokio::net::TcpStream;
 use crate::protocol::redis_serialization_protocol::RedisType;
 use crate::storage::{StorageRequest, StorageResponse};
 
-use super::{RedisCommandInstance, storage_engine};
+use super::{RedisCommand, storage_engine};
 
 #[derive(Debug)]
 pub struct SetCommand {
-    pub(crate) key: String,
-    pub(crate) value: String,
-    pub(crate) expiration_in_ms: u64,
+    key: String,
+    value: String,
+    expiration_in_ms: u64,
 }
 
-impl RedisCommandInstance for SetCommand {
+impl RedisCommand for SetCommand {
     fn parse(redis_type: &RedisType) -> Result<Self> {
         let elements = super::expect_cmd_array(redis_type)?;
         if elements.len() < 3 {
