@@ -5,9 +5,9 @@ use bytes::BytesMut;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
-use crate::protocol::redis_serialization_protocol::RedisType;
-use crate::storage::{StorageEngine, StorageRequest, StorageResponse};
-use crate::{command::RedisCommand, protocol::redis_serialization_protocol::try_parse_frame};
+use crate::command::{dispatch_and_execute, ensure_storage_engine};
+use crate::protocol::redis_serialization_protocol::{RedisType, try_parse_frame};
+use crate::storage::StorageEngine;
 
 use std::net::TcpListener as StdTcpListener;
 
@@ -79,6 +79,9 @@ async fn handle_tcp_connection_from_client(
 
     let mut output_buf = BytesMut::with_capacity(DEFAULT_WRITE_CAPACITY);
 
+    // Provide StorageEngine to command implementations (initialized once)
+    ensure_storage_engine(storage_engine.clone());
+
     'outer: loop {
         // Incremental parsing: parse a single complete frame (if available).
         // Do not reparse bytes already consumed; keep leftovers for the next iteration.
@@ -106,114 +109,14 @@ async fn handle_tcp_connection_from_client(
             }
         };
 
-        let maybe_redis_command = RedisCommand::from_redis_type(&received_redis_type);
+        if let Err(error) =
+            dispatch_and_execute(&received_redis_type, &mut output_buf, &mut stream).await
+        {
+            tracing::warn!("Unsupported command received: {error:?}");
 
-        match maybe_redis_command {
-            Ok(RedisCommand::Ping(maybe_argument)) => {
-                if let Some(argument) = maybe_argument {
-                    RedisType::BulkString(argument)
-                        .write_resp_to_stream(&mut output_buf, &mut stream)
-                        .await?;
-                } else {
-                    // Simple string reply: PONG when no argument is provided.
-                    RedisType::SimpleString("PONG".to_string())
-                        .write_resp_to_stream(&mut output_buf, &mut stream)
-                        .await?;
-                }
-            }
-            Ok(RedisCommand::Command()) => {
-                RedisType::Array(vec![])
-                    .write_resp_to_stream(&mut output_buf, &mut stream)
-                    .await?;
-            }
-            Ok(RedisCommand::Echo(argument)) => {
-                // Bulk string reply: the given string.
-                RedisType::BulkString(argument)
-                    .write_resp_to_stream(&mut output_buf, &mut stream)
-                    .await?;
-            }
-            Ok(RedisCommand::Set {
-                key,
-                value,
-                expiration_in_ms,
-            }) => {
-                let command_response = storage_engine
-                    .execute(StorageRequest::Set {
-                        key,
-                        value,
-                        expiration_in_ms,
-                    })
-                    .await?;
-
-                if let StorageResponse::Success = command_response {
-                    // Simple string reply: OK: The key was set.
-                    RedisType::SimpleString("OK".to_string())
-                        .write_resp_to_stream(&mut output_buf, &mut stream)
-                        .await?;
-                } else {
-                    RedisType::SimpleError("Error occurred during SET".to_string())
-                        .write_resp_to_stream(&mut output_buf, &mut stream)
-                        .await?;
-                }
-            }
-
-            Ok(RedisCommand::Get { key }) => {
-                let command_response = storage_engine.execute(StorageRequest::Get { key }).await?;
-
-                match command_response {
-                    StorageResponse::Nill => {
-                        // $-1\r\n
-                        // https://redis.io/docs/latest/develop/reference/protocol-spec/#bulk-strings
-                        RedisType::NullBulkString
-                            .write_resp_to_stream(&mut output_buf, &mut stream)
-                            .await?;
-                    }
-                    StorageResponse::KeyValue { value } => {
-                        // Bulk string reply: the value of the key.
-                        RedisType::BulkString(value)
-                            .write_resp_to_stream(&mut output_buf, &mut stream)
-                            .await?;
-                    }
-                    _ => {
-                        RedisType::SimpleError("Error occurred during GET".to_string())
-                            .write_resp_to_stream(&mut output_buf, &mut stream)
-                            .await?;
-                    }
-                }
-            }
-
-            Ok(RedisCommand::RPush { key, values }) => {
-                let command_response = storage_engine
-                    .execute(StorageRequest::ListRightPush { key, values })
-                    .await?;
-
-                match command_response {
-                    StorageResponse::ListLength(length) => {
-                        // Integer reply: the length of the list after the push operation.
-                        RedisType::Integer(length as i32)
-                            .write_resp_to_stream(&mut output_buf, &mut stream)
-                            .await?;
-                    }
-                    StorageResponse::Failed(error_msg) => {
-                        RedisType::SimpleError(error_msg)
-                            .write_resp_to_stream(&mut output_buf, &mut stream)
-                            .await?;
-                    }
-                    _ => {
-                        RedisType::SimpleError("Unknown error occurred during RPUSH".to_string())
-                            .write_resp_to_stream(&mut output_buf, &mut stream)
-                            .await?;
-                    }
-                }
-            }
-
-            Err(error) => {
-                tracing::warn!("Unsupported command received: {error:?}");
-
-                RedisType::SimpleError(error.to_string())
-                    .write_resp_to_stream(&mut output_buf, &mut stream)
-                    .await?
-            }
+            RedisType::SimpleError(error.to_string())
+                .write_resp_to_stream(&mut output_buf, &mut stream)
+                .await?;
         }
     }
 
