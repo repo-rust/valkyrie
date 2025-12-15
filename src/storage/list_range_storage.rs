@@ -82,3 +82,90 @@ impl StorageRequest for ListRangeStorage {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ListRangeStorage;
+
+    fn to_strings(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn normalize_start_index_cases() {
+        let values = to_strings(&["a", "b", "c", "d", "e"]);
+        // len = 5
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(-1, &values, true),
+            4
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(-10, &values, true),
+            0
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(0, &values, true),
+            0
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(3, &values, true),
+            3
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(5, &values, true),
+            5
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(15, &values, true),
+            5
+        );
+    }
+
+    #[test]
+    fn normalize_end_index_cases() {
+        let values = to_strings(&["a", "b", "c", "d", "e"]);
+        // len = 5, last valid index = 4
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(-1, &values, false),
+            4
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(-10, &values, false),
+            0
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(0, &values, false),
+            0
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(4, &values, false),
+            4
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(5, &values, false),
+            4
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(15, &values, false),
+            4
+        );
+    }
+
+    #[test]
+    fn normalize_empty_values_start_index() {
+        let values: Vec<String> = Vec::new();
+        // For empty values, start index always normalizes to 0
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(-1, &values, true),
+            0
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(0, &values, true),
+            0
+        );
+        assert_eq!(
+            ListRangeStorage::normalize_list_range_index(10, &values, true),
+            0
+        );
+    }
+}
