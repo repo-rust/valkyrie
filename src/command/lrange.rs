@@ -3,7 +3,7 @@ use bytes::BytesMut;
 use tokio::net::TcpStream;
 
 use crate::protocol::redis_serialization_protocol::RedisType;
-use crate::storage::{StorageRequest, StorageResponse};
+use crate::storage::{ListRangeStorage, StorageResponse};
 
 use super::{RedisCommand, storage_engine};
 
@@ -58,7 +58,7 @@ impl RedisCommand for LRange {
     async fn execute(&self, output_buf: &mut BytesMut, stream: &mut TcpStream) -> Result<()> {
         let engine = storage_engine()?;
         let resp = engine
-            .execute(StorageRequest::ListRange {
+            .execute(ListRangeStorage {
                 key: self.key.clone(),
                 start: self.start,
                 end: self.end,

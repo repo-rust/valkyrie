@@ -23,10 +23,10 @@ struct StorageShard {
     commands_channel: tokio::sync::mpsc::UnboundedSender<StorageCommandEnvelope>,
 }
 
-#[derive(Debug)]
+// Do NOT derive Debug because the Request holds a trait object
 enum StorageCommandEnvelope {
     Request {
-        request: StorageRequest,
+        request: Box<dyn StorageRequest + Send>,
         reply_channel: oneshot::Sender<StorageCommandEnvelope>,
     },
     Response {
@@ -34,27 +34,183 @@ enum StorageCommandEnvelope {
     },
 }
 
+// Trait-based request interface, enabling separate request structs
+pub trait StorageRequest: Send {
+    fn key(&self) -> &str;
+
+    fn handle(
+        &self,
+        stored_data: &Rc<RefCell<HashMap<String, StorageValue>>>,
+        delayed_tasks: &Rc<RefCell<HashMap<String, JoinHandle<()>>>>,
+    ) -> StorageResponse;
+}
+
 #[derive(Debug)]
-pub enum StorageRequest {
-    Get {
-        key: String,
-    },
-    Set {
-        key: String,
-        value: String,
-        expiration_in_ms: u64,
-    },
+pub struct GetStorage {
+    pub key: String,
+}
 
-    ListRightPush {
-        key: String,
-        values: Vec<String>,
-    },
+impl StorageRequest for GetStorage {
+    fn key(&self) -> &str {
+        &self.key
+    }
 
-    ListRange {
-        key: String,
-        start: i32,
-        end: i32,
-    },
+    fn handle(
+        &self,
+        stored_data: &Rc<RefCell<HashMap<String, StorageValue>>>,
+        _delayed_tasks: &Rc<RefCell<HashMap<String, JoinHandle<()>>>>,
+    ) -> StorageResponse {
+        match stored_data.borrow().get(&self.key) {
+            Some(StorageValue::Str(value)) => StorageResponse::KeyValue {
+                value: value.clone(),
+            },
+            Some(StorageValue::List(_)) => {
+                // Currently we do not have List support in the public GET API
+                StorageResponse::Nill
+            }
+            None => StorageResponse::Nill,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct SetStorage {
+    pub key: String,
+    pub value: String,
+    pub expiration_in_ms: u64,
+}
+
+impl StorageRequest for SetStorage {
+    fn key(&self) -> &str {
+        &self.key
+    }
+
+    fn handle(
+        &self,
+        stored_data: &Rc<RefCell<HashMap<String, StorageValue>>>,
+        delayed_tasks: &Rc<RefCell<HashMap<String, JoinHandle<()>>>>,
+    ) -> StorageResponse {
+        {
+            // short-lived mutable borrow; do not await while borrowed
+            stored_data
+                .borrow_mut()
+                .insert(self.key.clone(), StorageValue::Str(self.value.clone()));
+            if let Some(prev_exp_handle) = delayed_tasks.borrow_mut().remove(&self.key) {
+                // abort any previously created expiration tasks if any
+                tracing::debug!("Previous expiration aborted");
+                prev_exp_handle.abort();
+            }
+        }
+
+        if self.expiration_in_ms > 0 {
+            // Delete expired key after 'expiration_in_ms' milliseconds delay
+            let key_copy = self.key.clone();
+
+            let local_map_copy = Rc::clone(stored_data);
+            let delayed_tasks_copy = Rc::clone(delayed_tasks);
+            let exp_ms = self.expiration_in_ms;
+
+            let exp_handler = tokio::task::spawn_local(async move {
+                sleep(Duration::from_millis(exp_ms)).await;
+                local_map_copy.borrow_mut().remove(&key_copy);
+                tracing::debug!("Key {key_copy} expired and was deleted.");
+            });
+
+            delayed_tasks_copy
+                .borrow_mut()
+                .insert(self.key.clone(), exp_handler);
+        }
+
+        StorageResponse::Success
+    }
+}
+
+#[derive(Debug)]
+pub struct ListRightPushStorage {
+    pub key: String,
+    pub values: Vec<String>,
+}
+
+impl StorageRequest for ListRightPushStorage {
+    fn key(&self) -> &str {
+        &self.key
+    }
+
+    fn handle(
+        &self,
+        stored_data: &Rc<RefCell<HashMap<String, StorageValue>>>,
+        _delayed_tasks: &Rc<RefCell<HashMap<String, JoinHandle<()>>>>,
+    ) -> StorageResponse {
+        let mut map_ref = stored_data.borrow_mut();
+
+        match map_ref.get_mut(&self.key) {
+            Some(StorageValue::List(original_values)) => {
+                let new_length = original_values.len() + self.values.len();
+                // Append clones of provided values (cannot move out of &self)
+                original_values.extend(self.values.iter().cloned());
+                StorageResponse::ListLength(new_length)
+            }
+            Some(StorageValue::Str(_)) => StorageResponse::Failed(
+                "Can't execute Right Push for a String value, should be List".to_string(),
+            ),
+            None => {
+                let length = self.values.len();
+                map_ref.insert(self.key.clone(), StorageValue::List(self.values.clone()));
+                StorageResponse::ListLength(length)
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ListRangeStorage {
+    pub key: String,
+    pub start: i32,
+    pub end: i32,
+}
+
+impl StorageRequest for ListRangeStorage {
+    fn key(&self) -> &str {
+        &self.key
+    }
+
+    fn handle(
+        &self,
+        stored_data: &Rc<RefCell<HashMap<String, StorageValue>>>,
+        _delayed_tasks: &Rc<RefCell<HashMap<String, JoinHandle<()>>>>,
+    ) -> StorageResponse {
+        match stored_data.borrow().get(&self.key) {
+            Some(StorageValue::List(values)) => {
+                if values.is_empty() {
+                    StorageResponse::ListValues {
+                        values: Vec::with_capacity(0),
+                    }
+                } else {
+                    /*
+                    If start is larger than the end of the list, an empty list is returned.
+                    If stop is larger than the actual end of the list, Redis will treat it like the last element of the list.
+                    These offsets can also be negative numbers indicating offsets starting at the end of the list. For example, -1 is the last element of the list, -2 the penultimate, and so on.
+                    */
+                    let start = StorageEngine::normalize_list_range_index(self.start, values, true);
+                    let end = StorageEngine::normalize_list_range_index(self.end, values, false);
+
+                    tracing::debug!("[{start}..{end}]");
+
+                    if start == values.len() || start > end {
+                        StorageResponse::ListValues {
+                            values: Vec::with_capacity(0),
+                        }
+                    } else {
+                        StorageResponse::ListValues {
+                            values: values[start..=end].to_vec(),
+                        }
+                    }
+                }
+            }
+            Some(_) => StorageResponse::Failed(format!("'{}' is not a list.", self.key)),
+            None => StorageResponse::Failed(format!("No list found with name '{}'", self.key)),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -68,7 +224,7 @@ pub enum StorageResponse {
 }
 
 #[derive(Debug)]
-enum StorageValue {
+pub enum StorageValue {
     Str(String),
     List(Vec<String>),
 }
@@ -131,137 +287,10 @@ impl StorageEngine {
                 reply_channel,
             } = storage_command
             {
-                tracing::debug!("Engine handling storage request {:?}", request);
+                tracing::debug!("Engine handling storage request");
 
-                match request {
-                    StorageRequest::Get { key } => {
-                        let response_value = {
-                            match stored_data.borrow().get(&key) {
-                                Some(StorageValue::Str(value)) => StorageResponse::KeyValue {
-                                    value: value.clone(),
-                                },
-                                Some(StorageValue::List(_)) => {
-                                    // Currently we do not have List support in the public API
-                                    StorageResponse::Nill
-                                }
-
-                                None => StorageResponse::Nill,
-                            }
-                        };
-
-                        Self::send_reply(reply_channel, response_value);
-                    }
-                    StorageRequest::Set {
-                        key,
-                        value,
-                        expiration_in_ms,
-                    } => {
-                        {
-                            // short-lived mutable borrow; do not await while borrowed
-                            stored_data
-                                .borrow_mut()
-                                .insert(key.clone(), StorageValue::Str(value));
-                            if let Some(prev_exp_handle) = delayed_tasks.borrow_mut().remove(&key) {
-                                // abort any previously created expiration tasks if any
-                                tracing::debug!("Previous expiration aborted");
-                                prev_exp_handle.abort();
-                            }
-                        }
-
-                        if expiration_in_ms > 0 {
-                            // Delete expired key after 'expiration_in_ms' milliseconds delay
-                            let key_copy = key.clone();
-
-                            let local_map_copy = Rc::clone(&stored_data);
-                            let delayed_tasks_copy = Rc::clone(&delayed_tasks);
-
-                            let exp_handler = tokio::task::spawn_local(async move {
-                                sleep(Duration::from_millis(expiration_in_ms)).await;
-                                local_map_copy.borrow_mut().remove(&key_copy);
-                                tracing::debug!("Key {key_copy} expired and was deleted.");
-                            });
-
-                            let key_for_exp = key.clone();
-
-                            delayed_tasks_copy
-                                .borrow_mut()
-                                .insert(key_for_exp, exp_handler);
-                        }
-
-                        Self::send_reply(reply_channel, StorageResponse::Success);
-                    }
-                    StorageRequest::ListRightPush { key, values } => {
-                        let local_map_copy = Rc::clone(&stored_data);
-
-                        // Mutably borrow the map and push without cloning elements
-                        let mut map_ref = local_map_copy.borrow_mut();
-
-                        let response = match map_ref.get_mut(&key) {
-                            Some(StorageValue::List(original_values)) => {
-                                let new_length = original_values.len() + values.len();
-                                // Move elements from `values` into the existing vector, no cloning
-                                original_values.extend(values);
-                                StorageResponse::ListLength(new_length)
-                            }
-                            Some(StorageValue::Str(_)) => {
-                                // Key exists but is not a list
-                                StorageResponse::Failed(
-                                    "Can't execute Right Push for a String value, should be List"
-                                        .to_string(),
-                                )
-                            }
-                            None => {
-                                let length = values.len();
-                                map_ref.insert(key.clone(), StorageValue::List(values));
-                                StorageResponse::ListLength(length)
-                            }
-                        };
-
-                        Self::send_reply(reply_channel, response);
-                    }
-
-                    StorageRequest::ListRange { key, start, end } => {
-                        let local_map_copy = Rc::clone(&stored_data);
-
-                        let response = match local_map_copy.borrow().get(&key) {
-                            Some(StorageValue::List(values)) => {
-                                if values.is_empty() {
-                                    StorageResponse::ListValues {
-                                        values: Vec::with_capacity(0),
-                                    }
-                                } else {
-                                    /*
-                                    If start is larger than the end of the list, an empty list is returned.
-                                    If stop is larger than the actual end of the list, Redis will treat it like the last element of the list.
-                                    These offsets can also be negative numbers indicating offsets starting at the end of the list. For example, -1 is the last element of the list, -2 the penultimate, and so on.
-                                     */
-                                    let start =
-                                        Self::normalize_list_range_index(start, values, true);
-                                    let end = Self::normalize_list_range_index(end, values, false);
-
-                                    tracing::debug!("[{start}..{end}]");
-
-                                    if start == values.len() || start > end {
-                                        StorageResponse::ListValues {
-                                            values: Vec::with_capacity(0),
-                                        }
-                                    } else {
-                                        StorageResponse::ListValues {
-                                            values: values[start..=end].to_vec(),
-                                        }
-                                    }
-                                }
-                            }
-                            Some(_) => StorageResponse::Failed(format!("'{}' is not a list.", key)),
-                            None => StorageResponse::Failed(format!(
-                                "No list found with name '{}'",
-                                key
-                            )),
-                        };
-
-                        Self::send_reply(reply_channel, response);
-                    }
-                }
+                let response = request.handle(&stored_data, &delayed_tasks);
+                Self::send_reply(reply_channel, response);
             } else {
                 unreachable!(
                     "Incorrect 'StorageCommandEnvelope' type received expected 'Request' but found 'Response'"
@@ -299,26 +328,29 @@ impl StorageEngine {
         reply_channel: oneshot::Sender<StorageCommandEnvelope>,
         storage_reponse: StorageResponse,
     ) {
-        if let Err(error) = reply_channel.send(StorageCommandEnvelope::Response {
-            response: storage_reponse,
-        }) {
-            tracing::error!("Failed to send reply {error:?}");
+        if reply_channel
+            .send(StorageCommandEnvelope::Response {
+                response: storage_reponse,
+            })
+            .is_err()
+        {
+            tracing::error!("Failed to send reply");
         }
     }
 
-    pub async fn execute(
-        &self,
-        storage_request: StorageRequest,
-    ) -> anyhow::Result<StorageResponse> {
+    pub async fn execute<R>(&self, storage_request: R) -> anyhow::Result<StorageResponse>
+    where
+        R: StorageRequest + 'static,
+    {
         // this channel will be used like a future/promise
         let (sender, receiver) = oneshot::channel::<StorageCommandEnvelope>();
 
-        let storage_thread = self.find_shard_for_request(&storage_request);
+        let storage_thread = self.find_shard_for_key(storage_request.key());
 
         storage_thread
             .commands_channel
             .send(StorageCommandEnvelope::Request {
-                request: storage_request,
+                request: Box::new(storage_request),
                 reply_channel: sender,
             })
             .map_err(|_| anyhow::anyhow!("failed to send to storage shard: channel closed"))?;
@@ -337,26 +369,10 @@ impl StorageEngine {
     /// Selects the storage shard for a request by hashing the key.
     ///
     /// The shard index is computed as `hash(key) % shard_count`.
-    /// Both GET and SET variants use the request key, ensuring that reads
-    /// go to the same shard where writes for that key were stored. This
-    /// keeps per-key data localized and avoids cross-shard coordination.
-    ///
-    /// Implementation details:
-    /// - Uses `DefaultHasher` (SipHash) to hash the key via `hash_string`.
-    /// - Reduces the hash with modulo `self.storage_shards.len()` to obtain
-    ///   a stable index into the shard vector.
-    /// - The mapping is stable for a fixed shard count; changing the number
-    ///   of shards will remap keys (this is not consistent hashing).
-    fn find_shard_for_request(&self, storage_request: &StorageRequest) -> &StorageShard {
-        let shard_idx = match storage_request {
-            StorageRequest::Get { key }
-            | StorageRequest::Set { key, .. }
-            | StorageRequest::ListRightPush { key, .. }
-            | StorageRequest::ListRange { key, .. } => {
-                self.hash_string(key) % self.storage_shards.len()
-            }
-        };
-
+    /// All request variants use the request key, ensuring that reads/writes
+    /// go to the same shard where the data for that key is stored.
+    fn find_shard_for_key(&self, key: &str) -> &StorageShard {
+        let shard_idx = self.hash_string(key) % self.storage_shards.len();
         &self.storage_shards[shard_idx]
     }
 

@@ -3,7 +3,7 @@ use bytes::BytesMut;
 use tokio::net::TcpStream;
 
 use crate::protocol::redis_serialization_protocol::RedisType;
-use crate::storage::{StorageRequest, StorageResponse};
+use crate::storage::{GetStorage, StorageResponse};
 
 use super::{RedisCommand, storage_engine};
 
@@ -29,7 +29,7 @@ impl RedisCommand for GetCommand {
     async fn execute(&self, output_buf: &mut BytesMut, stream: &mut TcpStream) -> Result<()> {
         let engine = storage_engine()?;
         let resp = engine
-            .execute(StorageRequest::Get {
+            .execute(GetStorage {
                 key: self.key.clone(),
             })
             .await?;

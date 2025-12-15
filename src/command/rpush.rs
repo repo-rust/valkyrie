@@ -3,7 +3,7 @@ use bytes::BytesMut;
 use tokio::net::TcpStream;
 
 use crate::protocol::redis_serialization_protocol::RedisType;
-use crate::storage::{StorageRequest, StorageResponse};
+use crate::storage::{ListRightPushStorage, StorageResponse};
 
 use super::{RedisCommand, storage_engine};
 
@@ -41,7 +41,7 @@ impl RedisCommand for RPushCommand {
     async fn execute(&self, output_buf: &mut BytesMut, stream: &mut TcpStream) -> Result<()> {
         let engine = storage_engine()?;
         let resp = engine
-            .execute(StorageRequest::ListRightPush {
+            .execute(ListRightPushStorage {
                 key: self.key.clone(),
                 values: self.values.clone(),
             })
