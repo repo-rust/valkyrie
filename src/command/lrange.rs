@@ -66,8 +66,10 @@ impl RedisCommand for LRange {
             .await?;
 
         match resp {
-            StorageResponse::ListLength(len) => {
-                RedisType::Integer(len as i32)
+            StorageResponse::ListValues { values } => {
+                let redis_values = values.into_iter().map(RedisType::BulkString).collect();
+
+                RedisType::Array(redis_values)
                     .write_resp_to_stream(output_buf, stream)
                     .await?;
             }
@@ -77,7 +79,7 @@ impl RedisCommand for LRange {
                     .await?;
             }
             _ => {
-                RedisType::SimpleError("Unknown error occurred during RPUSH".to_string())
+                RedisType::SimpleError("Unknown error occurred during LRANGE".to_string())
                     .write_resp_to_stream(output_buf, stream)
                     .await?;
             }

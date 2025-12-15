@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    cmp::min,
     collections::HashMap,
     hash::DefaultHasher,
     rc::Rc,
@@ -220,8 +221,43 @@ impl StorageEngine {
                     }
 
                     StorageRequest::ListRange { key, start, end } => {
-                        //TODO: implement
-                        let response = StorageResponse::ListValues { values: vec![] };
+                        let local_map_copy = Rc::clone(&stored_data);
+
+                        let response = match local_map_copy.borrow().get(&key) {
+                            Some(StorageValue::List(values)) => {
+                                if values.is_empty() {
+                                    StorageResponse::ListValues {
+                                        values: Vec::with_capacity(0),
+                                    }
+                                } else {
+                                    /*
+                                    If start is larger than the end of the list, an empty list is returned.
+                                    If stop is larger than the actual end of the list, Redis will treat it like the last element of the list.
+                                    These offsets can also be negative numbers indicating offsets starting at the end of the list. For example, -1 is the last element of the list, -2 the penultimate, and so on.
+                                     */
+                                    let start =
+                                        Self::normalize_list_range_index(start, values, true);
+                                    let end = Self::normalize_list_range_index(end, values, false);
+
+                                    tracing::debug!("[{start}..{end}]");
+
+                                    if start == values.len() || start > end {
+                                        StorageResponse::ListValues {
+                                            values: Vec::with_capacity(0),
+                                        }
+                                    } else {
+                                        StorageResponse::ListValues {
+                                            values: values[start..=end].to_vec(),
+                                        }
+                                    }
+                                }
+                            }
+                            Some(_) => StorageResponse::Failed(format!("'{}' is not a list.", key)),
+                            None => StorageResponse::Failed(format!(
+                                "No list found with name '{}'",
+                                key
+                            )),
+                        };
 
                         Self::send_reply(reply_channel, response);
                     }
@@ -232,6 +268,31 @@ impl StorageEngine {
                 )
             }
         }
+    }
+
+    fn normalize_list_range_index(index: i32, values: &[String], start_index: bool) -> usize {
+        let values_len = values.len() as i32;
+        let mut index = index;
+
+        if index < 0 {
+            index += values_len;
+
+            if index < 0 {
+                index = 0;
+            }
+        } else {
+            index = min(
+                index,
+                if start_index {
+                    values_len
+                } else {
+                    values_len - 1
+                },
+            );
+        }
+
+        assert!(index >= 0);
+        index as usize
     }
 
     fn send_reply(
