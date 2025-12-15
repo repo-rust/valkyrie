@@ -48,6 +48,12 @@ pub enum StorageRequest {
         key: String,
         values: Vec<String>,
     },
+
+    ListRange {
+        key: String,
+        start: i32,
+        end: i32,
+    },
 }
 
 #[derive(Debug)]
@@ -56,6 +62,7 @@ pub enum StorageResponse {
     Nill,
     Success,
     ListLength(usize),
+    ListValues { values: Vec<String> },
     Failed(String),
 }
 
@@ -211,6 +218,13 @@ impl StorageEngine {
 
                         Self::send_reply(reply_channel, response);
                     }
+
+                    StorageRequest::ListRange { key, start, end } => {
+                        //TODO: implement
+                        let response = StorageResponse::ListValues { values: vec![] };
+
+                        Self::send_reply(reply_channel, response);
+                    }
                 }
             } else {
                 unreachable!(
@@ -276,7 +290,8 @@ impl StorageEngine {
         let shard_idx = match storage_request {
             StorageRequest::Get { key }
             | StorageRequest::Set { key, .. }
-            | StorageRequest::ListRightPush { key, .. } => {
+            | StorageRequest::ListRightPush { key, .. }
+            | StorageRequest::ListRange { key, .. } => {
                 self.hash_string(key) % self.storage_shards.len()
             }
         };
