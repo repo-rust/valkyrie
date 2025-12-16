@@ -19,6 +19,8 @@ pub mod set_storage;
 pub use set_storage::SetStorage;
 pub mod list_right_push_storage;
 pub use list_right_push_storage::ListRightPushStorage;
+pub mod list_left_push_storage;
+pub use list_left_push_storage::ListLeftPushStorage;
 pub mod list_range_storage;
 pub use list_range_storage::ListRangeStorage;
 

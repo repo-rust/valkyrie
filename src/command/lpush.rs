@@ -3,24 +3,24 @@ use bytes::BytesMut;
 use tokio::net::TcpStream;
 
 use crate::protocol::redis_serialization_protocol::RedisType;
-use crate::storage::{ListRightPushStorage, StorageResponse};
+use crate::storage::{ListLeftPushStorage, StorageResponse};
 
 use super::{RedisCommand, storage_engine};
 
 ///
-/// https://redis.io/docs/latest/commands/rpush/
+/// https://redis.io/docs/latest/commands/lpush/
 ///
 #[derive(Debug)]
-pub struct RPushCommand {
+pub struct LPushCommand {
     key: String,
     values: Vec<String>,
 }
 
-impl RedisCommand for RPushCommand {
+impl RedisCommand for LPushCommand {
     fn parse(redis_type: &RedisType) -> Result<Self> {
         let elements = super::expect_cmd_array(redis_type)?;
         if elements.len() < 3 {
-            return Err(anyhow!("Not enough arguments for RPUSH command"));
+            return Err(anyhow!("Not enough arguments for LPUSH command"));
         }
 
         if let RedisType::BulkString(key) = &elements[1] {
@@ -29,7 +29,7 @@ impl RedisCommand for RPushCommand {
                 match element {
                     RedisType::BulkString(v) => values.push(v.clone()),
                     RedisType::Integer(i) => values.push(i.to_string()),
-                    _ => return Err(anyhow!("RPUSH argument is not BulkString or Integer")),
+                    _ => return Err(anyhow!("LPUSH argument is not BulkString or Integer")),
                 }
             }
             Ok(Self {
@@ -37,14 +37,14 @@ impl RedisCommand for RPushCommand {
                 values,
             })
         } else {
-            Err(anyhow!("RPUSH key is not BulkString"))
+            Err(anyhow!("LPUSH key is not BulkString"))
         }
     }
 
     async fn execute(&self, output_buf: &mut BytesMut, stream: &mut TcpStream) -> Result<()> {
         let engine = storage_engine()?;
         let resp = engine
-            .execute(ListRightPushStorage {
+            .execute(ListLeftPushStorage {
                 key: self.key.clone(),
                 values: self.values.clone(),
             })
@@ -62,7 +62,7 @@ impl RedisCommand for RPushCommand {
                     .await?;
             }
             _ => {
-                RedisType::SimpleError("Unknown error occurred during RPUSH".to_string())
+                RedisType::SimpleError("Unknown error occurred during LPUSH".to_string())
                     .write_resp_to_stream(output_buf, stream)
                     .await?;
             }
