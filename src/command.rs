@@ -55,6 +55,7 @@ mod command_meta;
 mod echo;
 mod get;
 mod llen;
+mod lpop;
 mod lpush;
 mod lrange;
 mod ping;
@@ -66,6 +67,7 @@ pub use command_meta::CommandCommand;
 pub use echo::EchoCommand;
 pub use get::GetCommand;
 pub use llen::LLenCommand;
+pub use lpop::LPopCommand;
 pub use lpush::LPushCommand;
 pub use lrange::LRange;
 pub use ping::PingCommand;
@@ -112,6 +114,12 @@ pub async fn dispatch_and_execute(
         }
         Some("LPUSH") => {
             return LPushCommand::parse(redis_type)?
+                .execute(output_buf, stream)
+                .await;
+        }
+
+        Some("LPOP") => {
+            return LPopCommand::parse(redis_type)?
                 .execute(output_buf, stream)
                 .await;
         }

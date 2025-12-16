@@ -35,7 +35,7 @@ impl RedisCommand for GetCommand {
             .await?;
 
         match resp {
-            StorageResponse::Nill => {
+            StorageResponse::Null => {
                 RedisType::NullBulkString
                     .write_resp_to_stream(output_buf, stream)
                     .await?;

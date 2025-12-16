@@ -25,9 +25,9 @@ impl StorageRequest for GetStorage {
             },
             Some(StorageValue::List(_)) => {
                 // Currently we do not have List support in the public GET API
-                StorageResponse::Nill
+                StorageResponse::Null
             }
-            None => StorageResponse::Nill,
+            None => StorageResponse::Null,
         }
     }
 }
