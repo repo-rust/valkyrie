@@ -1,4 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, VecDeque},
+    rc::Rc,
+};
 
 use tokio::task::JoinHandle;
 
@@ -24,17 +28,22 @@ impl StorageRequest for ListRightPushStorage {
 
         match map_ref.get_mut(&self.key) {
             Some(StorageValue::List(original_values)) => {
-                let new_length = original_values.len() + self.values.len();
-                // Append clones of provided values (cannot move out of &self)
-                original_values.extend(self.values.iter().cloned());
-                StorageResponse::ListLength(new_length)
+                // Push to the tail for each provided value
+                for v in &self.values {
+                    original_values.push_back(v.clone());
+                }
+                StorageResponse::ListLength(original_values.len())
             }
             Some(StorageValue::Str(_)) => StorageResponse::Failed(
                 "Can't execute Right Push for a String value, should be List".to_string(),
             ),
             None => {
                 let length = self.values.len();
-                map_ref.insert(self.key.clone(), StorageValue::List(self.values.clone()));
+                let mut deque = VecDeque::with_capacity(length);
+                for single_value in &self.values {
+                    deque.push_back(single_value.clone());
+                }
+                map_ref.insert(self.key.clone(), StorageValue::List(deque));
                 StorageResponse::ListLength(length)
             }
         }

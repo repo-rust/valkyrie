@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     hash::DefaultHasher,
     rc::Rc,
     thread::{self},
@@ -23,6 +23,8 @@ pub mod list_left_push_storage;
 pub use list_left_push_storage::ListLeftPushStorage;
 pub mod list_range_storage;
 pub use list_range_storage::ListRangeStorage;
+pub mod list_length_storage;
+pub use list_length_storage::ListLengthStorage;
 
 pub struct StorageEngine {
     storage_shards: Vec<StorageShard>,
@@ -67,7 +69,7 @@ pub enum StorageResponse {
 #[derive(Debug)]
 pub enum StorageValue {
     Str(String),
-    List(Vec<String>),
+    List(VecDeque<String>),
 }
 
 impl StorageEngine {

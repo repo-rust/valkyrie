@@ -13,8 +13,8 @@ pub struct ListRangeStorage {
 }
 
 impl ListRangeStorage {
-    fn normalize_list_range_index(index: i32, values: &[String], start_index: bool) -> usize {
-        let values_len = values.len() as i32;
+    fn normalize_list_range_index(index: i32, values_len_usize: usize, start_index: bool) -> usize {
+        let values_len = values_len_usize as i32;
         let mut index = index;
 
         if index < 0 {
@@ -61,8 +61,8 @@ impl StorageRequest for ListRangeStorage {
                     If stop is larger than the actual end of the list, Redis will treat it like the last element of the list.
                     These offsets can also be negative numbers indicating offsets starting at the end of the list. For example, -1 is the last element of the list, -2 the penultimate, and so on.
                     */
-                    let start = Self::normalize_list_range_index(self.start, values, true);
-                    let end = Self::normalize_list_range_index(self.end, values, false);
+                    let start = Self::normalize_list_range_index(self.start, values.len(), true);
+                    let end = Self::normalize_list_range_index(self.end, values.len(), false);
 
                     tracing::debug!("[{start}..{end}]");
 
@@ -71,9 +71,13 @@ impl StorageRequest for ListRangeStorage {
                             values: Vec::with_capacity(0),
                         }
                     } else {
-                        StorageResponse::ListValues {
-                            values: values[start..=end].to_vec(),
+                        // Collect a contiguous slice from VecDeque by indexing
+                        // Note: VecDeque supports indexing by logical index
+                        let mut out = Vec::with_capacity(end - start + 1);
+                        for single_value in values.iter().skip(start).take(end + 1) {
+                            out.push(single_value.clone());
                         }
+                        StorageResponse::ListValues { values: out }
                     }
                 }
             }
@@ -96,27 +100,27 @@ mod tests {
         let values = to_strings(&["a", "b", "c", "d", "e"]);
         // len = 5
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(-1, &values, true),
+            ListRangeStorage::normalize_list_range_index(-1, values.len(), true),
             4
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(-10, &values, true),
+            ListRangeStorage::normalize_list_range_index(-10, values.len(), true),
             0
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(0, &values, true),
+            ListRangeStorage::normalize_list_range_index(0, values.len(), true),
             0
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(3, &values, true),
+            ListRangeStorage::normalize_list_range_index(3, values.len(), true),
             3
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(5, &values, true),
+            ListRangeStorage::normalize_list_range_index(5, values.len(), true),
             5
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(15, &values, true),
+            ListRangeStorage::normalize_list_range_index(15, values.len(), true),
             5
         );
     }
@@ -126,27 +130,27 @@ mod tests {
         let values = to_strings(&["a", "b", "c", "d", "e"]);
         // len = 5, last valid index = 4
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(-1, &values, false),
+            ListRangeStorage::normalize_list_range_index(-1, values.len(), false),
             4
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(-10, &values, false),
+            ListRangeStorage::normalize_list_range_index(-10, values.len(), false),
             0
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(0, &values, false),
+            ListRangeStorage::normalize_list_range_index(0, values.len(), false),
             0
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(4, &values, false),
+            ListRangeStorage::normalize_list_range_index(4, values.len(), false),
             4
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(5, &values, false),
+            ListRangeStorage::normalize_list_range_index(5, values.len(), false),
             4
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(15, &values, false),
+            ListRangeStorage::normalize_list_range_index(15, values.len(), false),
             4
         );
     }
@@ -156,15 +160,15 @@ mod tests {
         let values: Vec<String> = Vec::new();
         // For empty values, start index always normalizes to 0
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(-1, &values, true),
+            ListRangeStorage::normalize_list_range_index(-1, values.len(), true),
             0
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(0, &values, true),
+            ListRangeStorage::normalize_list_range_index(0, values.len(), true),
             0
         );
         assert_eq!(
-            ListRangeStorage::normalize_list_range_index(10, &values, true),
+            ListRangeStorage::normalize_list_range_index(10, values.len(), true),
             0
         );
     }

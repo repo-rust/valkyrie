@@ -54,6 +54,7 @@ fn upper_first_bulk_string(redis_type: &RedisType) -> Option<String> {
 mod command_meta;
 mod echo;
 mod get;
+mod llen;
 mod lpush;
 mod lrange;
 mod ping;
@@ -64,6 +65,7 @@ mod set;
 pub use command_meta::CommandCommand;
 pub use echo::EchoCommand;
 pub use get::GetCommand;
+pub use llen::LLenCommand;
 pub use lpush::LPushCommand;
 pub use lrange::LRange;
 pub use ping::PingCommand;
@@ -116,6 +118,12 @@ pub async fn dispatch_and_execute(
 
         Some("LRANGE") => {
             return LRange::parse(redis_type)?.execute(output_buf, stream).await;
+        }
+
+        Some("LLEN") => {
+            return LLenCommand::parse(redis_type)?
+                .execute(output_buf, stream)
+                .await;
         }
 
         Some(cmd) => Err(anyhow!("Command type is not defined or unknown {cmd}")),
