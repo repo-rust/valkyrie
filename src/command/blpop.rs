@@ -17,7 +17,7 @@ use super::{RedisCommand, storage_engine};
 #[derive(Debug)]
 pub struct BlockingLeftPopCommand {
     keys: Vec<String>,
-    timeout: u64,
+    timeout_in_ms: u64,
 }
 
 impl RedisCommand for BlockingLeftPopCommand {
@@ -42,15 +42,12 @@ impl RedisCommand for BlockingLeftPopCommand {
         }
 
         if let Some(RedisType::BulkString(timeout_str)) = elements.last() {
-            let mut timeout = timeout_str
-                .parse::<u64>()
-                .with_context(|| "BLPOP  'timeout' is not unsigned integer")?;
+            let timeout_in_ms = Self::convert_float_str_seconds_to_ms(timeout_str)?;
 
-            if timeout == 0 {
-                timeout = u64::MAX;
-            }
-
-            Ok(BlockingLeftPopCommand { keys, timeout })
+            Ok(BlockingLeftPopCommand {
+                keys,
+                timeout_in_ms,
+            })
         } else {
             Err(anyhow!("BLPOP incorrect 'timeout' argument"))
         }
@@ -64,7 +61,7 @@ impl RedisCommand for BlockingLeftPopCommand {
 
         for single_key in &self.keys {
             let fut = timeout(
-                Duration::from_secs(self.timeout),
+                Duration::from_millis(self.timeout_in_ms),
                 engine.execute(ListLeftBlockingPopStorage {
                     key: single_key.clone(),
                 }),
@@ -123,12 +120,40 @@ impl RedisCommand for BlockingLeftPopCommand {
             None => {
                 // All keys timed out
                 tracing::debug!("BLPOP timed out");
-                RedisType::NullBulkString
+                RedisType::NullArray
                     .write_resp_to_stream(output_buf, stream)
                     .await?;
             }
         }
 
         Ok(())
+    }
+}
+
+impl BlockingLeftPopCommand {
+    ///
+    /// The timeout argument is interpreted as a double value specifying the maximum number of seconds to block. A timeout of zero can be used to block indefinitely.
+    ///
+    fn convert_float_str_seconds_to_ms(timeout_str: &str) -> Result<u64> {
+        let timeout_as_sec = timeout_str
+            .parse::<f64>()
+            .with_context(|| "BLPOP 'timeout' must be a finite, non-negative numbe")?;
+
+        if !timeout_as_sec.is_finite() || timeout_as_sec < 0.0 {
+            anyhow::bail!("BLPOP 'timeout' must be a finite, non-negative number");
+        }
+
+        let timeout_in_ms = if timeout_as_sec == 0.0 {
+            u64::MAX
+        } else {
+            let millis = (timeout_as_sec * 1000.0).floor();
+            if millis > u64::MAX as f64 {
+                u64::MAX
+            } else {
+                millis as u64
+            }
+        };
+
+        Ok(timeout_in_ms)
     }
 }
