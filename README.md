@@ -7,7 +7,7 @@ Valkyrie is a minimal Redis‑compatible server built in Rust. It accepts connec
 
 Key properties:
 - Redis‑compatible wire protocol (RESP)
-- In‑memory, sharded key‑value engine
+- In‑memory, sharded key‑value and list engine
 - Async I/O with Tokio
 - Structured logging with tracing
 
@@ -20,22 +20,40 @@ Docs
 Getting Started
 Quickstart (local)
 1) Build and run:
-  ```
-  cargo run --release -- \
-    --address=127.0.0.1:6379 --tcp-handlers=4 --shards=5
-  ```
+```
+cargo run --release -- \
+  --address=127.0.0.1:6379 --tcp-handlers=4 --shards=5
+```
 
 Alternatively, use the helper script (bash):
-- On Unix/Windows:
-  ```
-  scripts/run.sh
-  ```
+- On Unix-like systems (Linux/macOS), or on Windows via Git Bash/WSL:
+```
+scripts/run.sh
+```
 
 2) Connect with redis-cli:
 ```
 redis-cli -p 6379 ping
 redis-cli -p 6379 set foo bar
 redis-cli -p 6379 get foo
+```
+
+Additional list command examples:
+```
+# Push to a list
+redis-cli lpush mylist a
+redis-cli rpush mylist b c
+
+# Pop from left
+redis-cli lpop mylist
+
+# Length and range
+redis-cli llen mylist
+redis-cli lrange mylist 0 -1
+
+# Blocking pop (timeout in seconds; 0 = block indefinitely)
+redis-cli blpop mylist 5
+redis-cli blpop list1 list2 5
 ```
 
 Build from Source
@@ -69,13 +87,13 @@ At startup, Valkyrie detects available_parallelism (CPUs). It computes half = ma
 
 Examples:
 - Use defaults (auto half):
-  ```
-  ./target/release/valkyrie
-  ```
+```
+./target/release/valkyrie
+```
 - Explicit values:
-  ```
-  ./target/release/valkyrie --address=0.0.0.0:6379 --tcp-handlers=4 --shards=5
-  ```
+```
+./target/release/valkyrie --address=0.0.0.0:6379 --tcp-handlers=4 --shards=5
+```
 
 Protocol and Supported Commands
 Valkyrie speaks the Redis wire protocol (RESP). The following commands are implemented:
@@ -90,8 +108,22 @@ Valkyrie speaks the Redis wire protocol (RESP). The following commands are imple
   - Example: `redis-cli set foo bar` → OK
 - GET key
   - Example: `redis-cli get foo` → bar
+- LPUSH key value [value ...]
+  - Push one or more values to the head (left) of the list
+- RPUSH key value [value ...]
+  - Push one or more values to the tail (right) of the list
+- LPOP key
+  - Pop and return the first element of the list
+- LLEN key
+  - Return the length of the list
+- LRANGE key start stop
+  - Return a range of elements (e.g., `redis-cli lrange mylist 0 -1`)
+- BLPOP key [key ...] timeout
+  - Block until an element is available to pop from the left side of any of the given lists.
+  - `timeout` is in seconds; `0` means block indefinitely.
+  - On timeout, a nil value is returned.
 - COMMAND
-  - Returns basic command metadata placeholder (for compatibility)
+  - Returns a minimal command metadata placeholder (compatibility)
 
 For details on [RESP](https://redis.io/docs/latest/develop/reference/protocol-spec/), see the official Redis protocol spec.
 
@@ -135,14 +167,15 @@ High-level architecture:
 - Request handling: Per-connection async handlers (src/network/connection_handler.rs)
 - Protocol: RESP parser/encoder (src/protocol/redis_serialization_protocol.rs)
 - Commands: Minimal Redis command set (src/command)
-- Storage: In‑memory, sharded engine (src/storage/engine.rs)
+- Storage: In‑memory, sharded engine (src/storage.rs)
 
 Sharding and parallelism:
 - Shards and TCP handlers are capped to ~50% of CPU cores by default to reduce contention and leave system headroom.
-- Thread affinity support is available via the affinity crate.
+- Thread affinity support is available via the `affinity` crate (Linux only).
 
 Logging:
 - Uses tracing and tracing-subscriber with env-filter. Set RUST_LOG for fine‑grained control.
+  - Example: `RUST_LOG=info ./target/release/valkyrie`
 
 Licensing
 This project is licensed under the Apache License, Version 2.0. See the LICENSE file for details.
