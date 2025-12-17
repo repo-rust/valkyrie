@@ -4,16 +4,15 @@ use std::{
     hash::DefaultHasher,
     rc::Rc,
     thread::{self},
-    time::Duration,
 };
 
 use std::hash::{Hash, Hasher};
 
+use async_trait::async_trait;
 use tokio::task::JoinHandle;
 use tokio::{sync::oneshot, task::LocalSet};
 
 use crate::utils::thread_utils::pin_current_thread_to_cpu;
-use futures::future::select_all;
 pub mod get_storage;
 pub use get_storage::GetStorage;
 pub mod set_storage;
@@ -53,10 +52,11 @@ enum StorageCommandEnvelope {
 }
 
 // Trait-based request interface, enabling separate request structs
+#[async_trait(?Send)]
 pub trait StorageRequest: Send {
-    fn shard_keys(&self) -> Vec<&str>;
+    fn key(&self) -> &str;
 
-    fn handle(
+    async fn handle(
         &self,
         stored_data: &Rc<RefCell<HashMap<String, StorageValue>>>,
         delayed_tasks: &Rc<RefCell<HashMap<String, JoinHandle<()>>>>,
@@ -66,6 +66,7 @@ pub trait StorageRequest: Send {
 #[derive(Debug)]
 pub enum StorageResponse {
     KeyValue { value: String },
+    ValueFromList { value: String, list_name: String },
     Null,
     Success,
     ListLength(usize),
@@ -124,11 +125,8 @@ impl StorageEngine {
     async fn shard_loop(
         mut queue_receiver: tokio::sync::mpsc::UnboundedReceiver<StorageCommandEnvelope>,
     ) {
-        let stored_data: Rc<RefCell<HashMap<String, StorageValue>>> =
-            Rc::new(RefCell::new(HashMap::new()));
-        let delayed_tasks: Rc<RefCell<HashMap<String, JoinHandle<()>>>> =
-            Rc::new(RefCell::new(HashMap::new()));
-
+        let stored_data = Rc::new(RefCell::new(HashMap::new()));
+        let delayed_tasks = Rc::new(RefCell::new(HashMap::new()));
         tracing::debug!("Started");
 
         while let Some(storage_command) = queue_receiver.recv().await {
@@ -139,12 +137,16 @@ impl StorageEngine {
             {
                 tracing::debug!("Engine handling storage request");
 
-                let response = request.handle(&stored_data, &delayed_tasks);
+                let response = request.handle(&stored_data, &delayed_tasks).await;
 
-                //TODO: temporary added for testing purpose
-                // tokio::time::sleep(Duration::from_secs(5)).await;
-
-                Self::send_reply(reply_channel, response);
+                if reply_channel
+                    .send(StorageCommandEnvelope::Response { response })
+                    .is_err()
+                {
+                    tracing::warn!(
+                        "Failed to send reply: oneshot reply channel probably cancelled"
+                    );
+                }
             } else {
                 unreachable!(
                     "Incorrect 'StorageCommandEnvelope' type received expected 'Request' but found 'Response'"
@@ -153,51 +155,26 @@ impl StorageEngine {
         }
     }
 
-    fn send_reply(
-        reply_channel: oneshot::Sender<StorageCommandEnvelope>,
-        storage_reponse: StorageResponse,
-    ) {
-        if reply_channel
-            .send(StorageCommandEnvelope::Response {
-                response: storage_reponse,
-            })
-            .is_err()
-        {
-            tracing::warn!("Failed to send reply: oneshot reply channel probably cancelled");
-        }
-    }
-
     pub async fn execute<R>(&self, storage_request: R) -> anyhow::Result<StorageResponse>
     where
-        R: StorageRequest + 'static + Clone,
+        R: StorageRequest + 'static,
     {
-        let mut all_receivers = vec![];
+        // this channel will be used like a future/promise
+        let (sender, receiver) = oneshot::channel::<StorageCommandEnvelope>();
 
-        for key in storage_request.shard_keys().clone() {
-            // this channel will be used like a future/promise
-            let (sender, receiver) = oneshot::channel::<StorageCommandEnvelope>();
+        let storage_thread = self.find_shard_for_key(storage_request.key());
 
-            all_receivers.push(receiver);
+        storage_thread
+            .commands_channel
+            .send(StorageCommandEnvelope::Request {
+                request: Box::new(storage_request),
+                reply_channel: sender,
+            })
+            .map_err(|_| anyhow::anyhow!("failed to send to storage shard: channel closed"))?;
 
-            let storage_thread = self.find_shard_for_key(key);
+        let response_envelope = receiver.await?;
 
-            storage_thread
-                .commands_channel
-                .send(StorageCommandEnvelope::Request {
-                    request: Box::new(storage_request.clone()),
-                    reply_channel: sender,
-                })
-                .map_err(|_| anyhow::anyhow!("failed to send to storage shard: channel closed"))?;
-        }
-
-        // Wait for at least one shard to teply
-        // TODO: cancel all 'remaining' futures here
-        let (first_response_envelope, _index, remaining) = select_all(all_receivers).await;
-
-        // Cancel the remaining futures
-        drop(remaining);
-
-        if let StorageCommandEnvelope::Response { response } = first_response_envelope? {
+        if let StorageCommandEnvelope::Response { response } = response_envelope {
             Ok(response)
         } else {
             unreachable!(

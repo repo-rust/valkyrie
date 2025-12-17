@@ -1,6 +1,7 @@
 use std::cmp::min;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+use async_trait::async_trait;
 use tokio::task::JoinHandle;
 
 use super::{StorageRequest, StorageResponse, StorageValue};
@@ -39,12 +40,13 @@ impl ListRangeStorage {
     }
 }
 
+#[async_trait(?Send)]
 impl StorageRequest for ListRangeStorage {
-    fn shard_keys(&self) -> Vec<&str> {
-        vec![&self.key]
+    fn key(&self) -> &str {
+        &self.key
     }
 
-    fn handle(
+    async fn handle(
         &self,
         stored_data: &Rc<RefCell<HashMap<String, StorageValue>>>,
         _delayed_tasks: &Rc<RefCell<HashMap<String, JoinHandle<()>>>>,

@@ -17,6 +17,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 anyhow = "1"
 futures = "0.3"
+async-trait = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 affinity = "0.1.2"

@@ -1,5 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 
+use async_trait::async_trait;
 use tokio::{task::JoinHandle, time::sleep};
 
 use super::{StorageRequest, StorageResponse, StorageValue};
@@ -11,12 +12,13 @@ pub struct SetStorage {
     pub expiration_in_ms: u64,
 }
 
+#[async_trait(?Send)]
 impl StorageRequest for SetStorage {
-    fn shard_keys(&self) -> Vec<&str> {
-        vec![&self.key]
+    fn key(&self) -> &str {
+        &self.key
     }
 
-    fn handle(
+    async fn handle(
         &self,
         stored_data: &Rc<RefCell<HashMap<String, StorageValue>>>,
         delayed_tasks: &Rc<RefCell<HashMap<String, JoinHandle<()>>>>,
