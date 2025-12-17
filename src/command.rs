@@ -51,6 +51,7 @@ fn upper_first_bulk_string(redis_type: &RedisType) -> Option<String> {
 }
 
 // Submodules containing individual command implementations
+mod blpop;
 mod command_meta;
 mod echo;
 mod get;
@@ -63,6 +64,7 @@ mod rpush;
 mod set;
 
 // Re-export for convenience
+pub use blpop::BlockingLeftPopCommand;
 pub use command_meta::CommandCommand;
 pub use echo::EchoCommand;
 pub use get::GetCommand;
@@ -120,6 +122,12 @@ pub async fn dispatch_and_execute(
 
         Some("LPOP") => {
             return LPopCommand::parse(redis_type)?
+                .execute(output_buf, stream)
+                .await;
+        }
+
+        Some("BLPOP") => {
+            return BlockingLeftPopCommand::parse(redis_type)?
                 .execute(output_buf, stream)
                 .await;
         }
