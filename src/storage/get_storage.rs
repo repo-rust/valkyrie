@@ -4,14 +4,14 @@ use tokio::task::JoinHandle;
 
 use super::{StorageRequest, StorageResponse, StorageValue};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GetStorage {
     pub key: String,
 }
 
 impl StorageRequest for GetStorage {
-    fn key(&self) -> &str {
-        &self.key
+    fn shard_keys(&self) -> Vec<&str> {
+        vec![&self.key]
     }
 
     fn handle(

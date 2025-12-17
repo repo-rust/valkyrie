@@ -4,7 +4,7 @@ use tokio::task::JoinHandle;
 
 use super::{StorageRequest, StorageResponse, StorageValue};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ListLeftPopStorage {
     pub key: String,
     /// None = pop a single element
@@ -13,8 +13,8 @@ pub struct ListLeftPopStorage {
 }
 
 impl StorageRequest for ListLeftPopStorage {
-    fn key(&self) -> &str {
-        &self.key
+    fn shard_keys(&self) -> Vec<&str> {
+        vec![&self.key]
     }
 
     fn handle(

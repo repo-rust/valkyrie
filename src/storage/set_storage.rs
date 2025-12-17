@@ -4,7 +4,7 @@ use tokio::{task::JoinHandle, time::sleep};
 
 use super::{StorageRequest, StorageResponse, StorageValue};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SetStorage {
     pub key: String,
     pub value: String,
@@ -12,8 +12,8 @@ pub struct SetStorage {
 }
 
 impl StorageRequest for SetStorage {
-    fn key(&self) -> &str {
-        &self.key
+    fn shard_keys(&self) -> Vec<&str> {
+        vec![&self.key]
     }
 
     fn handle(

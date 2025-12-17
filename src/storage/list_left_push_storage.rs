@@ -8,15 +8,15 @@ use tokio::task::JoinHandle;
 
 use super::{StorageRequest, StorageResponse, StorageValue};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ListLeftPushStorage {
     pub key: String,
     pub values: Vec<String>,
 }
 
 impl StorageRequest for ListLeftPushStorage {
-    fn key(&self) -> &str {
-        &self.key
+    fn shard_keys(&self) -> Vec<&str> {
+        vec![&self.key]
     }
 
     fn handle(
