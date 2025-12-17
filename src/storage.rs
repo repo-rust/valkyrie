@@ -68,6 +68,8 @@ pub trait StorageRequest: Send {
         stored_data: &Rc<RefCell<HashMap<String, StorageValue>>>,
         delayed_tasks: &Rc<RefCell<HashMap<String, JoinHandle<()>>>>,
     ) -> StorageResponse;
+
+    fn commit(&self, _stored_data: &Rc<RefCell<HashMap<String, StorageValue>>>) {}
 }
 
 #[derive(Debug)]
@@ -132,6 +134,9 @@ impl StorageEngine {
     async fn shard_loop(
         mut queue_receiver: tokio::sync::mpsc::UnboundedReceiver<StorageCommandEnvelope>,
     ) {
+        //
+        //TODO: think if it's better to move below values to thread_local!, similar to `LIST_NOTIFIERS`
+        //
         let stored_data = Rc::new(RefCell::new(HashMap::new()));
         let delayed_tasks = Rc::new(RefCell::new(HashMap::new()));
         tracing::debug!("Started");
@@ -150,13 +155,15 @@ impl StorageEngine {
 
                     let response = request.handle(&stored_data2, &delayed_tasks2).await;
 
-                    if reply_channel
-                        .send(StorageCommandEnvelope::Response { response })
-                        .is_err()
-                    {
-                        tracing::warn!(
-                            "Failed to send reply: oneshot reply channel probably cancelled"
-                        );
+                    match reply_channel.send(StorageCommandEnvelope::Response { response }) {
+                        Ok(_) => {
+                            request.commit(&stored_data2);
+                        }
+                        Err(_) => {
+                            tracing::warn!(
+                                "Failed to send reply: oneshot reply channel probably cancelled"
+                            );
+                        }
                     }
                 });
             } else {

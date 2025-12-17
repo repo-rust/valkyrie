@@ -19,6 +19,8 @@ pub struct RPushCommand {
 impl RedisCommand for RPushCommand {
     fn parse(redis_type: &RedisType) -> Result<Self> {
         let elements = super::expect_cmd_array(redis_type)?;
+
+        // RPUSH key element [element ...]
         if elements.len() < 3 {
             return Err(anyhow!("Not enough arguments for RPUSH command"));
         }
@@ -32,6 +34,7 @@ impl RedisCommand for RPushCommand {
                     _ => return Err(anyhow!("RPUSH argument is not BulkString or Integer")),
                 }
             }
+
             Ok(Self {
                 key: key.clone(),
                 values,

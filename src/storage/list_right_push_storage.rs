@@ -58,12 +58,12 @@ impl StorageRequest for ListRightPushStorage {
             }
         };
 
-        // Notify one waiter if we actually added items to a list
+        // Notify ALL waiters if we actually added items to a list
         if should_notify
             && let Some(notifier) =
                 LIST_NOTIFIERS.with(|cell| cell.borrow().get(&key_clone).cloned())
         {
-            notifier.notify_one();
+            notifier.notify_waiters();
         }
 
         response

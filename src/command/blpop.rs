@@ -42,9 +42,14 @@ impl RedisCommand for BlockingLeftPopCommand {
         }
 
         if let Some(RedisType::BulkString(timeout_str)) = elements.last() {
-            let timeout = timeout_str
+            let mut timeout = timeout_str
                 .parse::<u64>()
                 .with_context(|| "BLPOP  'timeout' is not unsigned integer")?;
+
+            if timeout == 0 {
+                timeout = u64::MAX;
+            }
+
             Ok(BlockingLeftPopCommand { keys, timeout })
         } else {
             Err(anyhow!("BLPOP incorrect 'timeout' argument"))
