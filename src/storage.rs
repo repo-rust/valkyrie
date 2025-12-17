@@ -7,8 +7,10 @@ use std::{
 };
 
 use std::hash::{Hash, Hasher};
+use std::thread_local;
 
 use async_trait::async_trait;
+use tokio::sync::{Notify, mpsc::UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::{sync::oneshot, task::LocalSet};
 
@@ -32,12 +34,17 @@ pub use list_range_storage::ListRangeStorage;
 pub mod list_length_storage;
 pub use list_length_storage::ListLengthStorage;
 
+thread_local! {
+    pub static LIST_NOTIFIERS: RefCell<HashMap<String, Rc<Notify>>> =
+        RefCell::new(HashMap::new());
+}
+
 pub struct StorageEngine {
     storage_shards: Vec<StorageShard>,
 }
 
 struct StorageShard {
-    commands_channel: tokio::sync::mpsc::UnboundedSender<StorageCommandEnvelope>,
+    commands_channel: UnboundedSender<StorageCommandEnvelope>,
 }
 
 // Do NOT derive Debug because the Request holds a trait object
@@ -135,18 +142,23 @@ impl StorageEngine {
                 reply_channel,
             } = storage_command
             {
-                tracing::debug!("Engine handling storage request");
+                let stored_data2 = Rc::clone(&stored_data);
+                let delayed_tasks2 = Rc::clone(&delayed_tasks);
 
-                let response = request.handle(&stored_data, &delayed_tasks).await;
+                tokio::task::spawn_local(async move {
+                    tracing::debug!("Engine handling storage request");
 
-                if reply_channel
-                    .send(StorageCommandEnvelope::Response { response })
-                    .is_err()
-                {
-                    tracing::warn!(
-                        "Failed to send reply: oneshot reply channel probably cancelled"
-                    );
-                }
+                    let response = request.handle(&stored_data2, &delayed_tasks2).await;
+
+                    if reply_channel
+                        .send(StorageCommandEnvelope::Response { response })
+                        .is_err()
+                    {
+                        tracing::warn!(
+                            "Failed to send reply: oneshot reply channel probably cancelled"
+                        );
+                    }
+                });
             } else {
                 unreachable!(
                     "Incorrect 'StorageCommandEnvelope' type received expected 'Request' but found 'Response'"

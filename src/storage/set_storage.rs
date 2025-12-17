@@ -5,7 +5,7 @@ use tokio::{task::JoinHandle, time::sleep};
 
 use super::{StorageRequest, StorageResponse, StorageValue};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SetStorage {
     pub key: String,
     pub value: String,

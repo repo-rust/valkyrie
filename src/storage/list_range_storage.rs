@@ -6,7 +6,7 @@ use tokio::task::JoinHandle;
 
 use super::{StorageRequest, StorageResponse, StorageValue};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ListRangeStorage {
     pub key: String,
     pub start: i32,
